@@ -14,7 +14,7 @@ const LIGHT_COLOR := Color(1.0, 0.95, 0.82)
 
 var streamer: WorldStreamer
 var reduced_motion := false
-var energy := 0.55
+var energy := 0.42
 var shadows := true
 
 var _lights: Array[SpotLight3D] = []
@@ -40,6 +40,8 @@ func _ready() -> void:
 		light.shadow_bias = 0.1
 		light.shadow_normal_bias = 2.0
 		light.shadow_blur = 2.5
+		# The baked field already darkens behind walls; real shadows only nuance it.
+		light.shadow_opacity = 0.6
 		light.rotation = Vector3(-PI / 2, 0, 0)
 		light.visible = false
 		add_child(light)

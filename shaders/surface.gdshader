@@ -78,6 +78,7 @@ void fragment() {
 	float vertical = 1.0 - abs(world_normal.y);
 	float cove = 1.0 - 0.15 * exp(-(ceiling_height - world_pos.y) * 13.0) * vertical;
 	float skirting = 1.0 - 0.18 * exp(-world_pos.y * 12.0) * vertical;
-	float facing = world_normal.y < -0.5 ? 0.46 : (world_normal.y > 0.5 ? 0.52 : 0.46);
+	// Office light reads even: walls as bright as the floor, ceiling a bit less.
+	float facing = world_normal.y < -0.5 ? 0.4 : (world_normal.y > 0.5 ? 0.48 : 0.58);
 	EMISSION = color * irradiance * contact * cove * skirting * facing * field_strength;
 }

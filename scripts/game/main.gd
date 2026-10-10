@@ -185,7 +185,7 @@ func _build_materials() -> void:
 	streamer.materials = {
 		"wall": _surface("wallpaper", {"wall_damp": true, "normal_strength": 0.25}),
 		"skirting": _surface("skirting", {"normal_strength": 0.3, "roughness_scale": 0.85}),
-		"floor": _surface("carpet", {"normal_strength": 0.8}),
+		"floor": _surface("carpet", {"normal_strength": 0.8, "tint": Color(0.84, 0.8, 0.66)}),
 		"ceiling": _surface("ceiling", {"ceiling_grid": true, "normal_strength": 0.4}),
 	}
 	var panel := ShaderMaterial.new()
@@ -239,7 +239,7 @@ func _build_environment() -> void:
 	env.fog_light_color = Color(0.1, 0.09, 0.05)
 	env.fog_density = 0.012
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.04
+	env.adjustment_saturation = 1.14
 	environment.environment = env
 
 
