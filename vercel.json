@@ -3,6 +3,11 @@
   "framework": null,
   "buildCommand": "",
   "outputDirectory": ".",
+  "git": {
+    "deploymentEnabled": {
+      "main": false
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",
@@ -12,8 +17,10 @@
       ]
     },
     {
-      "source": "/(.*)\.wasm",
-      "headers": [{ "key": "Content-Type", "value": "application/wasm" }]
+      "source": "/(.*\\.wasm)",
+      "headers": [
+        { "key": "Content-Type", "value": "application/wasm" }
+      ]
     }
   ]
 }
