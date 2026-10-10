@@ -17,6 +17,7 @@ uniform bool wall_damp = false;
 uniform sampler2D direct0 : filter_linear, repeat_disable;
 uniform sampler2D direct1 : filter_linear, repeat_disable;
 uniform sampler2D direct2 : filter_linear, repeat_disable;
+uniform sampler2D direct3 : filter_linear, repeat_disable;
 uniform sampler2D bounce0 : filter_linear, repeat_disable;
 uniform sampler2D bounce1 : filter_linear, repeat_disable;
 uniform sampler2D bounce2 : filter_linear, repeat_disable;
@@ -65,11 +66,16 @@ vec3 to_srgb(vec3 c) {
 	return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, lessThan(c, vec3(0.0031308)));
 }
 
-// Wall irradiance at height y from its values at 0.6 and 2.1 m.
-float wall_height(float low, float high, float y) {
-	low = max(low, 1e-4);
-	high = max(high, 1e-4);
-	return low * pow(high / low, clamp((y - 0.6) / 1.5, -0.4, 1.4));
+// Wall irradiance at height y from its values at 0.4, 1.6 and 2.5 m: a
+// quadratic in log space (positive, can rise then fall under the ceiling),
+// bounded by the samples so the extrapolation stays tame.
+float wall_profile(float e0, float e1, float e2, float y) {
+	float l0 = log(max(e0, 1e-4)), l1 = log(max(e1, 1e-4)), l2 = log(max(e2, 1e-4));
+	y = clamp(y, 0.0, 2.8);
+	float a0 = (y - 1.6) * (y - 2.5) / ((0.4 - 1.6) * (0.4 - 2.5));
+	float a1 = (y - 0.4) * (y - 2.5) / ((1.6 - 0.4) * (1.6 - 2.5));
+	float a2 = (y - 0.4) * (y - 1.6) / ((2.5 - 0.4) * (2.5 - 1.6));
+	return min(exp(a0 * l0 + a1 * l1 + a2 * l2), max(e0, max(e1, e2)) * 1.15);
 }
 
 void vertex() {
@@ -101,8 +107,8 @@ void fragment() {
 		color = mix(color, color * 0.86, seam * 0.6);
 	}
 	vec2 at = (world_pos.xz + world_normal.xz * 0.13 - light_rect.xy) / light_rect.zw;
-	vec4 d0 = texture(direct0, at), d1 = texture(direct1, at), d2 = texture(direct2, at);
-	d0 = d0 * d0 * e_max; d1 = d1 * d1 * e_max; d2 = d2 * d2 * e_max;
+	vec4 d0 = texture(direct0, at), d1 = texture(direct1, at), d2 = texture(direct2, at), d3 = texture(direct3, at);
+	d0 = d0 * d0 * e_max; d1 = d1 * d1 * e_max; d2 = d2 * d2 * e_max; d3 = d3 * d3 * e_max;
 	vec3 direct;
 	vec3 bounce;
 	if (world_normal.y > 0.5) {
@@ -114,12 +120,12 @@ void fragment() {
 		vec3 b = texture(bounce1, at).rgb;
 		bounce = b * b * i_max;
 	} else {
-		// Walls: irradiance for the facing axis, interpolated between 0.6 and
-		// 2.1 m geometrically: under a panel the light rises steeply up the wall,
-		// and a linear extrapolation would reach zero at its foot.
-		float low = world_normal.x > 0.5 ? d0.y : world_normal.x < -0.5 ? d0.z : world_normal.z > 0.5 ? d0.w : d1.x;
-		float high = world_normal.x > 0.5 ? d1.y : world_normal.x < -0.5 ? d1.z : world_normal.z > 0.5 ? d1.w : d2.x;
-		direct = vec3(wall_height(low, high, world_pos.y));
+		// Walls: irradiance for the facing axis at three heights.
+		int axis = world_normal.x > 0.5 ? 0 : world_normal.x < -0.5 ? 1 : world_normal.z > 0.5 ? 2 : 3;
+		float h0 = axis == 0 ? d0.y : axis == 1 ? d0.z : axis == 2 ? d0.w : d1.x;
+		float h1 = axis == 0 ? d1.y : axis == 1 ? d1.z : axis == 2 ? d1.w : d2.x;
+		float h2 = axis == 0 ? d2.y : axis == 1 ? d2.z : axis == 2 ? d2.w : d3.x;
+		direct = vec3(wall_profile(h0, h1, h2, world_pos.y));
 		vec3 b = texture(bounce2, at).rgb;
 		bounce = b * b * i_max;
 	}
@@ -128,7 +134,9 @@ void fragment() {
 	float occlusion = texture(ao_tex, (world_pos.xz + world_normal.xz * 0.03 - light_rect.xy) / light_rect.zw).r;
 	float near_floor = 1.0 - smoothstep(0.0, 0.35, world_pos.y);
 	float near_ceiling = 1.0 - smoothstep(0.0, 0.4, ceiling_height - world_pos.y);
-	float junction = world_normal.y > 0.5 ? 1.0 : (world_normal.y < -0.5 ? 0.6 : max(near_floor * 0.7, near_ceiling * 0.4));
+	// Light at the ceiling: a lit wall brightens the ceiling beside it, so the
+	// wall-ceiling junction only darkens slightly.
+	float junction = world_normal.y > 0.5 ? 1.0 : (world_normal.y < -0.5 ? 0.15 : max(near_floor * 0.7, near_ceiling * 0.1));
 	float contact = mix(1.0, occlusion, junction * ao_strength);
 	// Rough Schlick Fresnel (F0 0.04), energy conserving like the Principled
 	// BSDF: the reflected part is white and takes from the diffuse part. The

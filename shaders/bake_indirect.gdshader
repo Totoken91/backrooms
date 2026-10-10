@@ -19,6 +19,7 @@ uniform vec2 occ_size;
 uniform sampler2D direct0 : filter_linear, repeat_disable;
 uniform sampler2D direct1 : filter_linear, repeat_disable;
 uniform sampler2D direct2 : filter_linear, repeat_disable;
+uniform sampler2D direct3 : filter_linear, repeat_disable;
 uniform sampler2D bounce0 : filter_linear, repeat_disable;
 uniform sampler2D bounce1 : filter_linear, repeat_disable;
 uniform sampler2D bounce2 : filter_linear, repeat_disable;
@@ -73,13 +74,24 @@ vec3 bmap(sampler2D m, vec2 p) {
 
 // Direct irradiance of a wall facing `axis` (0 +X, 1 -X, 2 +Z, 3 -Z) at height y,
 // read just in front of it at p.
+// As in surface.gdshader. Wall irradiance at height y from its values at 0.4, 1.6 and 2.5 m: a
+// quadratic in log space (positive, can rise then fall under the ceiling),
+// bounded by the samples so the extrapolation stays tame.
+float wall_profile(float e0, float e1, float e2, float y) {
+	float l0 = log(max(e0, 1e-4)), l1 = log(max(e1, 1e-4)), l2 = log(max(e2, 1e-4));
+	y = clamp(y, 0.0, 2.8);
+	float a0 = (y - 1.6) * (y - 2.5) / ((0.4 - 1.6) * (0.4 - 2.5));
+	float a1 = (y - 0.4) * (y - 2.5) / ((1.6 - 0.4) * (1.6 - 2.5));
+	float a2 = (y - 0.4) * (y - 1.6) / ((2.5 - 0.4) * (2.5 - 1.6));
+	return min(exp(a0 * l0 + a1 * l1 + a2 * l2), max(e0, max(e1, e2)) * 1.15);
+}
+
 float wall_direct(vec2 p, int axis, float y) {
-	vec4 a = dmap(direct0, p), b = dmap(direct1, p), c = dmap(direct2, p);
-	float low = axis == 0 ? a.y : axis == 1 ? a.z : axis == 2 ? a.w : b.x;
-	float high = axis == 0 ? b.y : axis == 1 ? b.z : axis == 2 ? b.w : c.x;
-	low = max(low, 1e-4);
-	high = max(high, 1e-4);
-	return low * pow(high / low, clamp((y - 0.6) / 1.5, -0.4, 1.4));   // geometric, as in surface.gdshader
+	vec4 a = dmap(direct0, p), b = dmap(direct1, p), c = dmap(direct2, p), d = dmap(direct3, p);
+	float h0 = axis == 0 ? a.y : axis == 1 ? a.z : axis == 2 ? a.w : b.x;
+	float h1 = axis == 0 ? b.y : axis == 1 ? b.z : axis == 2 ? b.w : c.x;
+	float h2 = axis == 0 ? c.y : axis == 1 ? c.z : axis == 2 ? c.w : d.x;
+	return wall_profile(h0, h1, h2, y);
 }
 
 void fragment() {
@@ -88,7 +100,8 @@ void fragment() {
 	vec2 local = vec2(mod(cell.x, res), cell.y);
 	vec2 p = free_point((local + 0.5) * texel);
 	vec3 total = vec3(0.0);
-	if (occupied(p) < 0.5) {
+	// Three tiles only (the viewport has four, for the direct pass).
+	if (tile < 2.5 && occupied(p) < 0.5) {
 		float y0 = tile < 0.5 ? 0.03 : (tile < 1.5 ? ceiling - 0.03 : 1.4);
 		// Walls: the light a wall receives comes from the half-space in front of
 		// it. Next to a wall (within 0.5 m) face away from it; elsewhere average

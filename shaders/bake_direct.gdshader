@@ -1,12 +1,13 @@
 shader_type canvas_item;
 render_mode blend_disabled;
 // Light bake, pass 1: direct light of the panels on a chunk, 0.25 m texels.
-// The viewport holds three 160 × 160 tiles side by side:
-//   tile 0: floor (up), wall low (+X, -X, +Z)
-//   tile 1: wall low (-Z), wall high (+X, -X, +Z)
-//   tile 2: wall high (-Z)
+// The viewport holds four 160 × 160 tiles side by side:
+//   tile 0: floor (up), wall h0 (+X, -X, +Z)
+//   tile 1: wall h0 (-Z), wall h1 (+X, -X, +Z)
+//   tile 2: wall h1 (-Z), wall h2 (+X, -X, +Z)
+//   tile 3: wall h2 (-Z)
 // "Wall" values are the irradiance on a vertical surface facing that axis, at
-// WALL_LOW / WALL_HIGH. Panels are Lambertian rectangles facing down, sampled
+// WALL_H0 / WALL_H1 / WALL_H2. Panels are Lambertian rectangles facing down, sampled
 // at 2 × 2 points; full-height walls occlude (2D march through the occupancy
 // map). Coordinates are relative to the chunk origin to keep precision.
 // Values are stored as sqrt(E / e_max) for low-end precision.
@@ -25,8 +26,12 @@ uniform float e_max = 6.0;
 uniform float reach = 8.0;
 uniform bool calibrate = false;   // development: writes the texel coordinates
 
-const float WALL_LOW = 0.6;
-const float WALL_HIGH = 2.1;
+// Wall heights: the light on a wall rises from the floor, peaks and falls
+// again under the ceiling (recessed panels send little light sideways), so
+// three heights are needed (surface.gdshader: wall_profile).
+const float WALL_H0 = 0.4;
+const float WALL_H1 = 1.6;
+const float WALL_H2 = 2.5;
 
 float occupied(vec2 p) {
 	vec2 t = (p - occ_origin) / occ_texel;
@@ -67,8 +72,8 @@ void fragment() {
 	vec2 p = free_point((local + 0.5) * texel);
 	vec4 outv = vec4(0.0);
 	if (occupied(p) < 0.5) {
-		float e[9];
-		for (int k = 0; k < 9; k++) e[k] = 0.0;
+		float e[13];
+		for (int k = 0; k < 13; k++) e[k] = 0.0;
 		vec3 axes[4] = vec3[4](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 0, 1), vec3(0, 0, -1));
 		for (int i = 0; i < fix_count; i++) {
 			vec4 f = texelFetch(fix_tex, ivec2(i, 0), 0);
@@ -86,8 +91,8 @@ void fragment() {
 				float d2 = dot(v, v);
 				vec3 o = v * inversesqrt(d2);
 				e[0] += w * o.y * o.y / d2;
-				for (int h = 0; h < 2; h++) {
-					vec3 vh = lp - vec3(p.x, h == 0 ? WALL_LOW : WALL_HIGH, p.y);
+				for (int h = 0; h < 3; h++) {
+					vec3 vh = lp - vec3(p.x, h == 0 ? WALL_H0 : (h == 1 ? WALL_H1 : WALL_H2), p.y);
 					float dh = dot(vh, vh);
 					vec3 oh = vh * inversesqrt(dh);
 					for (int a = 0; a < 4; a++)
@@ -97,7 +102,8 @@ void fragment() {
 		}
 		if (tile < 0.5) outv = vec4(e[0], e[1], e[2], e[3]);
 		else if (tile < 1.5) outv = vec4(e[4], e[5], e[6], e[7]);
-		else outv = vec4(e[8], 0.0, 0.0, 0.0);
+		else if (tile < 2.5) outv = vec4(e[8], e[9], e[10], e[11]);
+		else outv = vec4(e[12], 0.0, 0.0, 0.0);
 		outv = sqrt(clamp(outv / e_max, 0.0, 1.0));
 	}
 	if (calibrate) outv = vec4(local / res, tile / 4.0, 1.0);

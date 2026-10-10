@@ -6,7 +6,8 @@ extends Node
 ## One render per frame; callers await the returned coroutine.
 
 const RES := 160
-const TILES := 3
+## Viewport tiles: the direct pass fills four, the gather passes three.
+const TILES := 4
 const TEXEL := 0.25
 const OCC_TEXEL := 0.125
 const MARGIN := 10.0
@@ -142,18 +143,20 @@ func direct(world: LevelWorld, coord: Vector2i) -> Array:
 	return await _render(_direct, 1)
 
 
-## Gather pass. `maps` are the 3 direct then the 3 first-gather textures of
+## Gather pass. `maps` are the 4 direct then the 3 first-gather textures of
 ## the streamed region whose origin (world metres) and size are given by
 ## `region`; `second` makes hits carry the first gather too (two bounces).
 func indirect(world: LevelWorld, coord: Vector2i, maps: Array, region: Rect2, second: bool) -> Array:
 	var origin := chunk_origin(coord)
 	_set_occupancy(_indirect, _occupancy(world, coord))
-	for i in 3:
+	for i in 4:
 		_indirect.set_shader_parameter("direct%d" % i, maps[i])
-		_indirect.set_shader_parameter("bounce%d" % i, maps[3 + i])
+	for i in 3:
+		_indirect.set_shader_parameter("bounce%d" % i, maps[4 + i])
 	_indirect.set_shader_parameter("use_bounce", higher_bounces if second else 0.0)
 	_indirect.set_shader_parameter("region", Vector4(region.position.x - origin.x, region.position.y - origin.y, region.size.x, region.size.y))
 	_indirect.set_shader_parameter("wall_albedo", albedo.wall)
 	_indirect.set_shader_parameter("floor_albedo", albedo.floor)
 	_indirect.set_shader_parameter("ceiling_albedo", albedo.ceiling)
-	return await _render(_indirect, 3)
+	var tiles: Array = await _render(_indirect, 3)
+	return tiles.slice(0, 3)

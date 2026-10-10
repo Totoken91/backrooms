@@ -24,7 +24,7 @@ var last_build_ms := 0.0
 var max_build_ms := 0.0
 ## Changes whenever the set of loaded chunks changes.
 var generation := 0
-## Region light maps (LightBaker layout): direct0..2, first gather 0..2, and
+## Region light maps (LightBaker layout): direct0..3, first gather 0..2, and
 ## the displayed indirect light 0..2 (second gather, else first); then AO.
 var light_images: Array[Image] = []
 var light_textures: Array[ImageTexture] = []
@@ -38,7 +38,7 @@ var _dirty := true
 
 func _ready() -> void:
 	var size := SPAN_CHUNKS * LightBaker.RES
-	for i in 9:
+	for i in 10:
 		var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 		img.fill(Color(0, 0, 0, 1))
 		light_images.append(img)
@@ -183,7 +183,7 @@ func _bake_gather(chunk: Chunk, second: bool) -> void:
 	_baking = true
 	if _dirty:
 		_composite()
-	var tiles: Array = await baker.indirect(world, chunk.coord, light_textures.slice(0, 6), region_rect(), second)
+	var tiles: Array = await baker.indirect(world, chunk.coord, light_textures.slice(0, 7), region_rect(), second)
 	if is_instance_valid(chunk):
 		if second:
 			chunk.bounce = tiles
@@ -209,9 +209,9 @@ func _composite() -> void:
 			for i in chunk.direct.size():
 				light_images[i].blit_rect(chunk.direct[i], Rect2i(0, 0, res, res), at * res)
 			for i in chunk.bounce1.size():
-				light_images[3 + i].blit_rect(chunk.bounce1[i], Rect2i(0, 0, res, res), at * res)
+				light_images[4 + i].blit_rect(chunk.bounce1[i], Rect2i(0, 0, res, res), at * res)
 			for i in shown.size():
-				light_images[6 + i].blit_rect(shown[i], Rect2i(0, 0, res, res), at * res)
+				light_images[7 + i].blit_rect(shown[i], Rect2i(0, 0, res, res), at * res)
 			if chunk.ao:
 				ao_image.blit_rect(chunk.ao, Rect2i(0, 0, Chunk.AO_RES, Chunk.AO_RES), at * Chunk.AO_RES)
 	for i in light_images.size():
@@ -220,9 +220,10 @@ func _composite() -> void:
 	var r := region_rect()
 	for m in materials.values():
 		if m is ShaderMaterial:
-			for i in 3:
+			for i in 4:
 				m.set_shader_parameter("direct%d" % i, light_textures[i])
-				m.set_shader_parameter("bounce%d" % i, light_textures[6 + i])
+			for i in 3:
+				m.set_shader_parameter("bounce%d" % i, light_textures[7 + i])
 			m.set_shader_parameter("ao_tex", ao_texture)
 			m.set_shader_parameter("light_rect", Vector4(r.position.x, r.position.y, r.size.x, r.size.y))
 

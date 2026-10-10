@@ -65,7 +65,7 @@ func _ready() -> void:
 	# Development: arbitrary viewpoint, at=x,z,yaw (metres, radians).
 	if options.has("at"):
 		var a := str(options.at).split(",")
-		world.views["at"] = {"position": Vector3(float(a[0]), 0, float(a[1])), "yaw": float(a[2]), "label": "at"}
+		world.views["at"] = {"position": Vector3(float(a[0]), 0, float(a[1])), "yaw": float(a[2]), "pitch": float(a[3]) if a.size() > 3 else 0.0, "label": "at"}
 	# Development: scout=N adds views dim0..dimN-1 in dim zones of the maze
 	# (free cell, no panel within one cell but some within two), for QA shots.
 	if options.has("scout"):
@@ -110,6 +110,9 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 	_capturing = true
 	start()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# The capture window must not take mouse input: views stay as defined.
+	player.set_process_unhandled_input(false)
+	player.set_process_input(false)
 	for n in names:
 		if not view(n):
 			continue
@@ -166,11 +169,11 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 				var w: Vector3 = player.global_position + fwd * dist
 				var px := Vector2i(((Vector2(w.x, w.z) - streamer.region_rect().position) / LightBaker.TEXEL).floor())
 				var vals := []
-				for i in 9:
+				for i in 10:
 					var col: Color = streamer.light_images[i].get_pixelv(px)
-					var scale := LightBaker.E_MAX if i < 3 else LightBaker.I_MAX
+					var scale := LightBaker.E_MAX if i < 4 else LightBaker.I_MAX
 					vals.append("%.2f/%.2f/%.2f/%.2f" % [col.r * col.r * scale, col.g * col.g * scale, col.b * col.b * scale, col.a * col.a * scale])
-				print("at ", dist, "m ", Vector2(w.x, w.z), " D0 ", vals[0], " D1 ", vals[1], " | B1 floor ", vals[3], " ceil ", vals[4], " wall ", vals[5], " | B2 floor ", vals[6], " ceil ", vals[7], " wall ", vals[8])
+				print("at ", dist, "m ", Vector2(w.x, w.z), " D0 ", vals[0], " D1 ", vals[1], " | B1 floor ", vals[4], " ceil ", vals[5], " wall ", vals[6], " | B2 floor ", vals[7], " ceil ", vals[8], " wall ", vals[9])
 				var e_cpu := 0.0
 				var near := []
 				for z in range(floori(w.z / 2.5) - 4, floori(w.z / 2.5) + 5):
@@ -244,7 +247,7 @@ func view(name: String) -> bool:
 	if not world.views.has(name):
 		return false
 	var v: Dictionary = world.views[name]
-	player.place(v.position, v.yaw)
+	player.place(v.position, v.yaw, v.get("pitch", 0.0))
 	streamer.update(player.global_position)
 	lights.refresh_panels()
 	return true
