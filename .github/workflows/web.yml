@@ -1,0 +1,59 @@
+name: Web build
+
+# Exports the Godot project for the browser on every push to main and
+# publishes the result, alone, on the `web` branch that Vercel serves.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.6-stable
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot and its web templates (official release, checked)
+        run: |
+          set -euo pipefail
+          base=https://github.com/godotengine/godot/releases/download/$GODOT_VERSION
+          curl -sSLO "$base/SHA512-SUMS.txt"
+          curl -sSLO "$base/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          curl -sSLO "$base/Godot_v${GODOT_VERSION}_export_templates.tpz"
+          grep -E " Godot_v${GODOT_VERSION}_(linux.x86_64.zip|export_templates.tpz)$" SHA512-SUMS.txt | sha512sum -c -
+          unzip -q "Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          sudo mv "Godot_v${GODOT_VERSION}_linux.x86_64" /usr/local/bin/godot
+          dest="$HOME/.local/share/godot/export_templates/${GODOT_VERSION/-/.}"
+          mkdir -p "$dest"
+          unzip -q -j "Godot_v${GODOT_VERSION}_export_templates.tpz" templates/version.txt templates/web_nothreads_release.zip templates/web_nothreads_debug.zip -d "$dest"
+          rm -f ./*.zip ./*.tpz
+
+      - name: Import and test
+        run: |
+          godot --headless --path . --import || true
+          godot --headless --path . --script res://tests/test_world.gd
+
+      - name: Export
+        run: GODOT_BIN=godot node tools/build-web.cjs
+
+      - name: Publish to the web branch
+        run: |
+          set -euo pipefail
+          cp vercel.json build/web/
+          cd build/web
+          git init -q -b web
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Web build of ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" web
