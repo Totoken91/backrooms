@@ -55,7 +55,7 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 			waited += 1
 		var path := folder.path_join("godot-s%d-%s.png" % [world.seed, n])
 		get_viewport().get_texture().get_image().save_png(path)
-		print("capture ", path, " fps ", Engine.get_frames_per_second(), " bakes ", streamer.pending_bakes(), " build max ", streamer.max_build_ms, " chunks ", streamer.chunks.size())
+		print("capture ", path, " fps ", Engine.get_frames_per_second(), " bakes ", streamer.pending_bakes(), " build max ", streamer.max_build_ms, " phases ", streamer.chunks.get(Vector2i(0, 0)).phases if streamer.chunks.has(Vector2i(0, 0)) else {}, " chunks ", streamer.chunks.size())
 	get_tree().quit()
 
 

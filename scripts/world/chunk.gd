@@ -16,26 +16,31 @@ var fixtures: Array = []
 var field: Image
 var field_ready := false
 var build_ms := 0.0
+var built := false
+var phases := {}
 var bake_ms := 0.0
 
 var _world: LevelWorld
 var _tools := {}
 
 
-func setup(world: LevelWorld, p_coord: Vector2i, materials: Dictionary, panel_mesh: Mesh) -> void:
+## Builds the chunk; with a finite slice_ms the work is spread over frames
+## (one row of cells at a time) and `built` turns true at the end.
+func setup(world: LevelWorld, p_coord: Vector2i, materials: Dictionary, panel_mesh: Mesh, slice_ms := INF) -> void:
 	_world = world
 	coord = p_coord
 	name = "Chunk_%d_%d" % [coord.x, coord.y]
 	var started := Time.get_ticks_usec()
+	var slice_start := started
+	var busy := 0.0
 	for key in ["wall", "skirting", "floor", "ceiling"]:
-		var st := SurfaceTool.new()
-		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		_tools[key] = st
+		_tools[key] = [[], [], [], []]
 	var body := StaticBody3D.new()
 	body.name = "Collision"
 	body.collision_layer = 1
 	body.collision_mask = 0
 	add_child(body)
+	var solids := []
 	var seen := {}
 	var x0 := coord.x * CHUNK
 	var z0 := coord.y * CHUNK
@@ -48,7 +53,7 @@ func setup(world: LevelWorld, p_coord: Vector2i, materials: Dictionary, panel_me
 					seen[b.id] = true
 					_emit_box(b)
 					if b.y0 < LevelWorld.BODY_HEIGHT:
-						_add_collider(body, b)
+						solids.append(b)
 				if b.occluder:
 					covered += maxf(0.0, minf(b.x1, (x + 1) * CELL) - maxf(b.x0, x * CELL)) * maxf(0.0, minf(b.z1, (z + 1) * CELL) - maxf(b.z0, z * CELL))
 			for f in _world.cell_fixtures(x, z):
@@ -56,40 +61,70 @@ func setup(world: LevelWorld, p_coord: Vector2i, materials: Dictionary, panel_me
 			if covered >= CELL * CELL - 1e-6:
 				continue
 			_emit_floor_and_ceiling(x, z)
+		if Time.get_ticks_usec() - slice_start > slice_ms * 1000.0:
+			busy += (Time.get_ticks_usec() - slice_start) / 1000.0
+			await get_tree().process_frame
+			if not is_inside_tree():
+				return
+			slice_start = Time.get_ticks_usec()
+	phases.geometry = busy + (Time.get_ticks_usec() - slice_start) / 1000.0
+	_add_colliders(body, solids)
+	phases.collision = busy + (Time.get_ticks_usec() - slice_start) / 1000.0 - phases.geometry
 	# Floor collider for the whole chunk: the body stands on it.
-	var floor_shape := CollisionShape3D.new()
-	var floor_box := BoxShape3D.new()
-	floor_box.size = Vector3(CHUNK * CELL, 1.0, CHUNK * CELL)
-	floor_shape.shape = floor_box
-	floor_shape.position = Vector3((x0 + CHUNK * 0.5) * CELL, -0.5, (z0 + CHUNK * 0.5) * CELL)
-	body.add_child(floor_shape)
+	_add_box_shape(body, Vector3(CHUNK * CELL, 1.0, CHUNK * CELL), Vector3((x0 + CHUNK * 0.5) * CELL, -0.5, (z0 + CHUNK * 0.5) * CELL))
 	var mesh := ArrayMesh.new()
 	for key in ["wall", "skirting", "floor", "ceiling"]:
-		var st: SurfaceTool = _tools[key]
-		st.generate_tangents()
-		st.commit(mesh)
+		var data: Array = _tools[key]
+		if data[0].is_empty():
+			continue
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = PackedVector3Array(data[0])
+		arrays[Mesh.ARRAY_NORMAL] = PackedVector3Array(data[1])
+		arrays[Mesh.ARRAY_TANGENT] = PackedFloat32Array(data[2])
+		arrays[Mesh.ARRAY_TEX_UV] = PackedVector2Array(data[3])
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		mesh.surface_set_material(mesh.get_surface_count() - 1, materials[key])
+	phases.mesh = busy + (Time.get_ticks_usec() - slice_start) / 1000.0 - phases.geometry - phases.collision
 	var instance := MeshInstance3D.new()
 	instance.name = "Geometry"
 	instance.mesh = mesh
 	add_child(instance)
 	_tools.clear()
 	_build_panels(panel_mesh)
-	build_ms = (Time.get_ticks_usec() - started) / 1000.0
+	build_ms = busy + (Time.get_ticks_usec() - slice_start) / 1000.0
+	built = true
 
 
 # --- Geometry -------------------------------------------------------------
 
 ## Adds a quad with corners in order around its face; triangles are wound so
 ## that the side facing `normal` is the front face.
+## Faces are axis-aligned, so tangents follow from the UV mapping of _uv.
 func _quad(key: String, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3) -> void:
-	var st: SurfaceTool = _tools[key]
+	var data: Array = _tools[key]
+	var verts: Array = data[0]
+	var normals: Array = data[1]
+	var tangents: Array = data[2]
+	var uvs: Array = data[3]
 	var flip := (b - a).cross(c - a).dot(normal) > 0.0
 	var order := [a, c, b, a, d, c] if flip else [a, b, c, a, c, d]
+	var t: Vector3
+	var w: float
+	if absf(normal.y) > 0.5:
+		t = Vector3.RIGHT
+		w = -1.0 if normal.y > 0.0 else 1.0
+	else:
+		t = Vector3(-normal.z, 0.0, normal.x)
+		w = 1.0
 	for p in order:
-		st.set_normal(normal)
-		st.set_uv(_uv(key, p, normal))
-		st.add_vertex(p)
+		verts.append(p)
+		normals.append(normal)
+		tangents.append(t.x)
+		tangents.append(t.y)
+		tangents.append(t.z)
+		tangents.append(w)
+		uvs.append(_uv(key, p, normal))
 
 
 func _uv(key: String, p: Vector3, n: Vector3) -> Vector2:
@@ -145,18 +180,21 @@ func _emit_box(b) -> void:
 				1: a = Vector2(b.x1, span.x); e = Vector2(b.x1, span.y)
 				2: a = Vector2(span.y, b.z1); e = Vector2(span.x, b.z1)
 				_: a = Vector2(b.x0, span.y); e = Vector2(b.x0, span.x)
-			var P := func(p: Vector2, y: float, o: float = 0.0) -> Vector3: return Vector3(p.x + n.x * o, y, p.y + n.z * o)
+			var A := Vector3(a.x, 0.0, a.y)
+			var E := Vector3(e.x, 0.0, e.y)
+			var up := Vector3.UP
 			if b.y0 > 0.0:
-				_quad("wall", P.call(a, b.y0), P.call(e, b.y0), P.call(e, b.y1), P.call(a, b.y1), n)
+				_quad("wall", A + up * b.y0, E + up * b.y0, E + up * b.y1, A + up * b.y1, n)
 				continue
-			_quad("wall", P.call(a, 0.16), P.call(e, 0.16), P.call(e, b.y1), P.call(a, b.y1), n)
-			_quad("skirting", P.call(a, 0.0), P.call(e, 0.0), P.call(e, 0.16), P.call(a, 0.16), n)
-			_quad("skirting", P.call(a, 0.008, LIP), P.call(e, 0.008, LIP), P.call(e, 0.115, LIP), P.call(a, 0.115, LIP), n)
-			_quad("skirting", P.call(a, 0.115), P.call(e, 0.115), P.call(e, 0.115, LIP), P.call(a, 0.115, LIP), Vector3.UP)
+			var lip := n * LIP
+			_quad("wall", A + up * 0.16, E + up * 0.16, E + up * b.y1, A + up * b.y1, n)
+			_quad("skirting", A, E, E + up * 0.16, A + up * 0.16, n)
+			_quad("skirting", A + up * 0.008 + lip, E + up * 0.008 + lip, E + up * 0.115 + lip, A + up * 0.115 + lip, n)
+			_quad("skirting", A + up * 0.115, E + up * 0.115, E + up * 0.115 + lip, A + up * 0.115 + lip, up)
 			# End caps close the skirting at jambs and outside corners.
-			var along := Vector3(e.x - a.x, 0, e.y - a.y).normalized()
-			_quad("skirting", P.call(a, 0.008), P.call(a, 0.008, LIP), P.call(a, 0.115, LIP), P.call(a, 0.115), -along)
-			_quad("skirting", P.call(e, 0.008), P.call(e, 0.008, LIP), P.call(e, 0.115, LIP), P.call(e, 0.115), along)
+			var along := (E - A).normalized()
+			_quad("skirting", A + up * 0.008, A + up * 0.008 + lip, A + up * 0.115 + lip, A + up * 0.115, -along)
+			_quad("skirting", E + up * 0.008, E + up * 0.008 + lip, E + up * 0.115 + lip, E + up * 0.115, along)
 	if b.y0 > 0.0:
 		_quad("wall", Vector3(b.x0, b.y0, b.z0), Vector3(b.x1, b.y0, b.z0), Vector3(b.x1, b.y0, b.z1), Vector3(b.x0, b.y0, b.z1), Vector3.DOWN)
 	if b.y1 < H - 1e-6:
@@ -200,14 +238,33 @@ func _emit_floor_and_ceiling(x: int, z: int) -> void:
 				run = -1
 
 
-func _add_collider(body: StaticBody3D, b) -> void:
-	var shape := CollisionShape3D.new()
+## Shape owners instead of nodes; contiguous full-height boxes on the same
+## rows merge, so a maze row of solid cells becomes one shape.
+func _add_colliders(body: StaticBody3D, boxes: Array) -> void:
+	boxes.sort_custom(func(p, q): return p.z0 < q.z0 or (p.z0 == q.z0 and (p.z1 < q.z1 or (p.z1 == q.z1 and p.x0 < q.x0))))
+	var run = null
+	for b in boxes:
+		var full: bool = b.y0 <= 0.0 and b.y1 >= H
+		if run != null and full and run[4] and run[1] == b.z0 and run[3] == b.z1 and absf(run[2] - b.x0) < 1e-6:
+			run[2] = b.x1
+			continue
+		if run != null:
+			_flush(body, run)
+		run = [b.x0, b.z0, b.x1, b.z1, full, b.y0, minf(b.y1, H)]
+	if run != null:
+		_flush(body, run)
+
+
+func _flush(body: StaticBody3D, r: Array) -> void:
+	_add_box_shape(body, Vector3(r[2] - r[0], r[6] - r[5], r[3] - r[1]), Vector3((r[0] + r[2]) * 0.5, (r[5] + r[6]) * 0.5, (r[1] + r[3]) * 0.5))
+
+
+func _add_box_shape(body: StaticBody3D, size: Vector3, center: Vector3) -> void:
 	var box := BoxShape3D.new()
-	var top: float = minf(b.y1, H)
-	box.size = Vector3(b.x1 - b.x0, top - b.y0, b.z1 - b.z0)
-	shape.shape = box
-	shape.position = Vector3((b.x0 + b.x1) * 0.5, (b.y0 + top) * 0.5, (b.z0 + b.z1) * 0.5)
-	body.add_child(shape)
+	box.size = size
+	var owner := body.create_shape_owner(body)
+	body.shape_owner_add_shape(owner, box)
+	body.shape_owner_set_transform(owner, Transform3D(Basis(), center))
 
 
 func _build_panels(panel_mesh: Mesh) -> void:

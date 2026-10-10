@@ -61,6 +61,7 @@ var site_grid: PackedByteArray
 
 var _chunks := {}
 var _maze_boxes := {}
+var _maze_fixtures := {}
 var _site_index := {}
 var _site_fixture_index := {}
 var _site_boxes: Array[Box] = []
@@ -261,9 +262,10 @@ func prune(cx: int, cz: int, keep := 4) -> void:
 	for key in _chunks.keys():
 		if absi(key.x - cx) > keep or absi(key.y - cz) > keep:
 			_chunks.erase(key)
-	for key in _maze_boxes.keys():
-		if absi(floori(float(key.x) / CHUNK) - cx) > keep or absi(floori(float(key.y) / CHUNK) - cz) > keep:
-			_maze_boxes.erase(key)
+	for cache in [_maze_boxes, _maze_fixtures]:
+		for key in cache.keys():
+			if absi(floori(float(key.x) / CHUNK) - cx) > keep or absi(floori(float(key.y) / CHUNK) - cz) > keep:
+				cache.erase(key)
 
 
 # --- C01 site -----------------------------------------------------------------
@@ -351,6 +353,9 @@ func cell_fixtures(x: int, z: int) -> Array:
 		return _site_fixture_index.get(Vector2i(x, z), [])
 	if kind != 0 or posmod(x, 2) != 1 or posmod(z, 2) != 1 or hash_cell(x, z, 303) % 7 == 0:
 		return []
+	var k := Vector2i(x, z)
+	if _maze_fixtures.has(k):
+		return _maze_fixtures[k]
 	var f := Fixture.new()
 	f.id = "f%d,%d" % [x, z]
 	f.x0 = x * CELL + 0.625
@@ -360,7 +365,8 @@ func cell_fixtures(x: int, z: int) -> Array:
 	f.x = (f.x0 + f.x1) * 0.5
 	f.z = (f.z0 + f.z1) * 0.5
 	f.seed = hash_cell(x, z, 1407)
-	return [f]
+	_maze_fixtures[k] = [f]
+	return _maze_fixtures[k]
 
 
 func point_blocked(x: float, z: float) -> bool:

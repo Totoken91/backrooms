@@ -12,6 +12,7 @@ const LOAD_RADIUS := 3
 const FIELD_RES := Chunk.FIELD_RES
 const SPAN := (RADIUS * 2 + 1) * FIELD_RES
 const BAKE_SLICE_MS := 3.0
+const BUILD_SLICE_MS := 4.0
 
 var world: LevelWorld
 var chunks := {}
@@ -26,6 +27,7 @@ var max_build_ms := 0.0
 var generation := 0
 
 var _baking: Chunk = null
+var _building: Chunk = null
 var _field_dirty := true
 
 
@@ -41,6 +43,7 @@ func reset(p_world: LevelWorld) -> void:
 	chunks.clear()
 	generation += 1
 	_baking = null
+	_building = null
 	world = p_world
 	center = Vector2i(1 << 30, 0)
 	_field_dirty = true
@@ -79,21 +82,24 @@ func update(p: Vector3) -> void:
 			if not chunks.has(k) and Vector2(dx, dz).length() < best:
 				best = Vector2(dx, dz).length()
 				missing = k
-	if best < INF:
-		_build(missing)
+	if best < INF and (_building == null or not is_instance_valid(_building) or _building.built):
+		_build(missing, BUILD_SLICE_MS)
 	if _baking == null:
 		_start_next_bake()
 	if _field_dirty:
 		_composite()
 
 
-func _build(k: Vector2i) -> void:
+func _build(k: Vector2i, slice_ms := INF) -> void:
 	if chunks.has(k):
 		return
 	var chunk := Chunk.new()
 	add_child(chunk)
-	chunk.setup(world, k, materials, panel_mesh)
 	chunks[k] = chunk
+	_building = chunk
+	await chunk.setup(world, k, materials, panel_mesh, slice_ms)
+	if not is_instance_valid(chunk) or not chunk.built:
+		return
 	generation += 1
 	last_build_ms = chunk.build_ms
 	max_build_ms = maxf(max_build_ms, chunk.build_ms)
@@ -104,12 +110,13 @@ func _start_next_bake() -> void:
 	var best_d := INF
 	for k in chunks:
 		var chunk: Chunk = chunks[k]
-		if chunk.field_ready or absi(k.x - center.x) > RADIUS or absi(k.y - center.y) > RADIUS:
+		if not chunk.built or chunk.field_ready or absi(k.x - center.x) > RADIUS or absi(k.y - center.y) > RADIUS:
 			continue
 		var neighbours := true
 		for dz in range(-1, 2):
 			for dx in range(-1, 2):
-				if not chunks.has(k + Vector2i(dx, dz)):
+				var n: Chunk = chunks.get(k + Vector2i(dx, dz))
+				if n == null or not n.built:
 					neighbours = false
 		if not neighbours:
 			continue
