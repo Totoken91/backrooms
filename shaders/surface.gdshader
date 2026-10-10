@@ -22,6 +22,14 @@ uniform vec4 field_rect = vec4(0.0, 0.0, 200.0, 200.0);
 uniform float field_strength = 1.75;
 uniform float ceiling_height = 2.8;
 
+// Panels around the player, one texel per 2.5 m cell: RG = panel centre
+// within the cell, B = live power, A = 1 if the cell has a panel. Every panel
+// lights its surroundings the same way at any distance from the player.
+uniform sampler2D fixture_tex : filter_nearest, repeat_disable;
+uniform vec2 fixture_origin = vec2(0.0);
+uniform float fixture_cells = 80.0;
+uniform float direct_strength = 0.7;
+
 varying vec3 world_pos;
 varying vec3 world_normal;
 
@@ -79,6 +87,38 @@ void fragment() {
 	float cove = 1.0 - 0.15 * exp(-(ceiling_height - world_pos.y) * 13.0) * vertical;
 	float skirting = 1.0 - 0.18 * exp(-world_pos.y * 12.0) * vertical;
 	// Office light reads even: walls as bright as the floor, ceiling a bit less.
-	float facing = world_normal.y < -0.5 ? 0.4 : (world_normal.y > 0.5 ? 0.48 : 0.58);
+	float facing = world_normal.y < -0.5 ? 0.4 : (world_normal.y > 0.5 ? 0.64 : 0.58);
 	EMISSION = color * irradiance * contact * cove * skirting * facing * field_strength;
+
+	// Direct light of the panels in the 3 × 3 cells around the fragment: a
+	// downward cone gives the pool on the carpet and the arcs on the walls.
+	// The reach (2.5 m horizontally) never exceeds the window, so no panel
+	// enters or leaves abruptly. field.a is the baked share of nearby panels
+	// this point sees, which keeps the light from crossing walls.
+	vec2 cell = floor(world_pos.xz / 2.5);
+	float direct = 0.0;
+	for (int dz = -1; dz <= 1; dz++) {
+		for (int dx = -1; dx <= 1; dx++) {
+			vec2 c = cell + vec2(float(dx), float(dz));
+			vec2 t = (c - fixture_origin + 0.5) / fixture_cells;
+			if (t.x < 0.0 || t.y < 0.0 || t.x > 1.0 || t.y > 1.0) continue;
+			vec4 f = texture(fixture_tex, t);
+			if (f.a < 0.5) continue;
+			vec3 centre = vec3((c.x + f.r) * 2.5, ceiling_height - 0.01, (c.y + f.g) * 2.5);
+			// Fades out 2.1 m from the panel centre: its samples (±0.4 m) stay
+			// inside the 2.5 m guaranteed by the window.
+			float reach = 1.0 - smoothstep(1.3, 2.1, length(centre.xz - world_pos.xz));
+			for (int s = 0; s < 2; s++) {
+				vec3 to_light = centre + vec3(float(s) * 0.8 - 0.4, 0.0, 0.0) - world_pos;
+				float d = length(to_light);
+				vec3 l = to_light / d;
+				float cone = smoothstep(0.05, 0.7, l.y);
+				float ndl = max(dot(world_normal, l), 0.0);
+				direct += f.b * cone * ndl * reach / (1.0 + d * d * 0.35);
+			}
+		}
+	}
+	// Walls only: fluorescent troffers light carpets evenly, round pools on the
+	// floor read as theatre spotlights.
+	EMISSION += color * direct * field.a * contact * direct_strength * vertical;
 }

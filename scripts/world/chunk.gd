@@ -329,18 +329,29 @@ func bake_field(space: PhysicsDirectSpaceState3D, nearby: Array, slice_ms: float
 						var dz: float = wz - clampf(wz, b.z0, b.z1)
 						ao -= 0.16 * exp(-sqrt(dx * dx + dz * dz) * 3.5)
 			var from := Vector3(wx, 1.4, wz)
+			# A: share of the nearby panels (within the shader's 2.5 m direct
+			# reach) that this point actually sees, distance-weighted.
+			var near_all := 0.0
+			var near_seen := 0.0
 			for f in nearby:
 				var d2: float = ((wx - f.x) * (wx - f.x) + (wz - f.z) * (wz - f.z)) / (CELL * CELL)
 				if d2 > 7.0:
 					continue
+				var near_w := 0.0
+				if d2 < 1.6:
+					near_w = 1.0 / (1.0 + d2 * 4.0)
+					near_all += near_w
 				query.from = from
 				query.to = Vector3(f.x, 1.4, f.z)
 				if not space.intersect_ray(query).is_empty():
 					continue
+				near_seen += near_w
 				sum += (0.76 + float(f.seed % 101) / 101.0 * 0.24) * 0.8 * exp(-d2 * 0.75)
-			var radiance := 1.0 - exp(-sum * 1.3)
+			# Strong saturation keeps the carpet even between panels.
+			var radiance := 1.0 - exp(-sum * 2.4)
 			var bounce := 0.11
-			field.set_pixel(ix, iz, Color(bounce + radiance * 0.6, minf(1.0, bounce * 1.25 + radiance * 0.72), maxf(0.53, ao), 1))
+			var visibility := near_seen / near_all if near_all > 0.0 else 1.0
+			field.set_pixel(ix, iz, Color(bounce + radiance * 0.6, minf(1.0, bounce * 1.25 + radiance * 0.72), maxf(0.53, ao), visibility))
 			if Time.get_ticks_usec() - slice_start > slice_ms * 1000.0:
 				bake_ms += (Time.get_ticks_usec() - slice_start) / 1000.0
 				await get_tree().process_frame

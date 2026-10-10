@@ -4,7 +4,9 @@ extends Node3D
 ## spots), and the flicker that drives both those lights and every panel's
 ## emission. The irradiance field carries all other panels.
 
-const POOL := 6
+## No real lights by default: every panel is lit by the surface shader, so
+## nothing switches on as the player approaches. Kept for experiments.
+const POOL := 0
 ## Real lights fade in between these distances: the baked field already
 ## carries each panel, they only add shadows and highlights near the player.
 const FADE_NEAR := 5.0
@@ -77,7 +79,9 @@ func update(delta: float, camera: Camera3D, running: bool) -> void:
 		for entry in _panels:
 			var f = entry[2]
 			if f.seed % 9 == 0 and is_instance_valid(entry[0]):
-				entry[0].set_panel_power(entry[1], power(_time, f.seed, reduced_motion))
+				var p := power(_time, f.seed, reduced_motion)
+				entry[0].set_panel_power(entry[1], p)
+				streamer.set_fixture_power(f, p)
 		_select(eye)
 	for i in POOL:
 		var light := _lights[i]
