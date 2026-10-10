@@ -1,7 +1,8 @@
 name: Web build
 
-# Exports the Godot project for the browser on every push to main and
-# publishes the result, alone, on the `web` branch that Vercel serves.
+# Exports the Godot project for the browser on every push to main and commits
+# the result in build/web, which Vercel serves from main. That commit carries
+# [skip ci] so it does not start this workflow again.
 on:
   push:
     branches: [main]
@@ -46,14 +47,13 @@ jobs:
       - name: Export
         run: GODOT_BIN=godot node tools/build-web.cjs
 
-      - name: Publish to the web branch
+      - name: Commit the build to main
         run: |
           set -euo pipefail
-          cp vercel.json build/web/
-          cd build/web
-          git init -q -b web
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -q -m "Web build of ${GITHUB_SHA::7}"
-          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" web
+          git add -A build/web
+          if git diff --cached --quiet; then echo "Build unchanged"; exit 0; fi
+          git commit -q -m "Web build of ${GITHUB_SHA::7} [skip ci]"
+          git pull -q --rebase origin main
+          git push origin HEAD:main

@@ -2,7 +2,8 @@
 .godot/
 *.translation
 export_credentials.cfg
-# Local builds (the web build is produced by CI on the web branch)
-build/
+# CI commits the web build in build/web; other build outputs stay local
+build/*
+!build/web/
 # Node
 node_modules/

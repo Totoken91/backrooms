@@ -28,7 +28,7 @@ Options de développement dans l'URL (ou après `--` en ligne de commande) : `?s
 
 ## Déploiement
 
-Chaque push sur `main` déclenche `.github/workflows/web.yml` : Godot 4.6 officiel (sommes SHA-512 vérifiées), tests, export, puis publication du build seul sur la branche `web`. Vercel sert la branche `web` telle quelle (`vercel.json` : pas de build, pas de cache obsolète).
+Chaque push sur `main` déclenche `.github/workflows/web.yml` : Godot 4.6 officiel (sommes SHA-512 vérifiées), tests, export, puis commit du build dans `build/web` sur `main` (message marqué `[skip ci]`). Vercel (preset « Other ») déploie `main` et sert `build/web` (`vercel.json` : pas de build, pas de cache obsolète).
 
 ## Origine
 
