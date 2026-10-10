@@ -36,7 +36,7 @@ uniform float ceiling = 2.8;
 uniform float e_max = 6.0;
 uniform float i_max = 2.0;
 uniform float boost = 1.0;
-uniform float max_distance = 10.0;
+uniform float max_distance = 16.0;
 
 float occupied(vec2 p) {
 	vec2 t = (p - occ_origin) / occ_texel;

@@ -227,12 +227,14 @@ func _composite() -> void:
 			m.set_shader_parameter("light_rect", Vector4(r.position.x, r.position.y, r.size.x, r.size.y))
 
 
+## Chunks within RADIUS not yet fully lit, counting those not yet built.
 func pending_bakes() -> int:
 	var n := 0
-	for k in chunks:
-		var chunk: Chunk = chunks[k]
-		if absi(k.x - center.x) <= RADIUS and absi(k.y - center.y) <= RADIUS and chunk.bounce.is_empty():
-			n += 1
+	for dz in range(-RADIUS, RADIUS + 1):
+		for dx in range(-RADIUS, RADIUS + 1):
+			var chunk: Chunk = chunks.get(center + Vector2i(dx, dz))
+			if chunk == null or not chunk.built or chunk.bounce.is_empty():
+				n += 1
 	return n
 
 

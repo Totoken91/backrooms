@@ -66,6 +66,36 @@ func _ready() -> void:
 	if options.has("at"):
 		var a := str(options.at).split(",")
 		world.views["at"] = {"position": Vector3(float(a[0]), 0, float(a[1])), "yaw": float(a[2]), "label": "at"}
+	# Development: scout=N adds views dim0..dimN-1 in dim zones of the maze
+	# (free cell, no panel within one cell but some within two), for QA shots.
+	if options.has("scout"):
+		var found := 0
+		var rng := RandomNumberGenerator.new()
+		rng.seed = world.seed
+		for attempt in 4000:
+			if found >= int(options.scout):
+				break
+			var cx := rng.randi_range(-24, 24)
+			var cz := rng.randi_range(-24, 24)
+			if absi(cx) < 10 and absi(cz) < 10:
+				continue
+			var p := Vector2((cx + 0.5) * LevelWorld.CELL, (cz + 0.5) * LevelWorld.CELL)
+			if world.point_blocked(p.x, p.y) or world.light_density(cx, cz) > 0.6:
+				continue
+			var near := 0
+			var around := 0
+			for dz in range(-2, 3):
+				for dx in range(-2, 3):
+					var n := world.cell_fixtures(cx + dx, cz + dz).size()
+					if absi(dx) <= 1 and absi(dz) <= 1:
+						near += n
+					else:
+						around += n
+			if options.get("scout_any") == null and (near > 0 or around < 1):
+				continue
+			world.views["dim%d" % found] = {"position": Vector3(p.x, 0, p.y), "yaw": rng.randf() * TAU, "label": "dim"}
+			print("scout dim%d " % found, [p.x, p.y, world.views["dim%d" % found].yaw])
+			found += 1
 	_update_ui()
 	if options.has("export_scene"):
 		_export_scene(str(options.export_scene))
@@ -84,7 +114,7 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 		if not view(n):
 			continue
 		var waited := 0
-		while (streamer.pending_bakes() > 0 and waited < 1200) or waited < 90:
+		while (streamer.pending_bakes() > 0 and waited < 4000) or waited < 90:
 			await get_tree().process_frame
 			waited += 1
 		var path := folder.path_join("godot-s%d-%s%s.png" % [world.seed, n, str(options.get("tag", ""))])
@@ -116,6 +146,21 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 					var fl := single.get_pixel(t.x, LightBaker.RES - 1 - t.y)
 					print("texel ", t, " cpu E ", e, " gpu ", single.get_pixelv(t).r ** 2 * 6.0, " flipped ", fl.r ** 2 * 6.0)
 			print("light_rect ", streamer.region_rect(), " baker ms ", streamer.baker.last_ms)
+			var pp := player.global_position
+			var cc := WorldStreamer.chunk_of(pp)
+			var occ_img: Image = streamer.baker._occupancy(world, cc)
+			var op := (Vector2(pp.x, pp.z) - LightBaker.chunk_origin(cc) + Vector2(LightBaker.MARGIN, LightBaker.MARGIN)) / LightBaker.OCC_TEXEL
+			var cbx := []
+			for b in world.cell_boxes(floori(pp.x / 2.5), floori(pp.z / 2.5)):
+				cbx.append([b.id, b.x0, b.z0, b.x1, b.z1, b.occluder])
+			var kinds := []
+			for dz in range(-2, 3):
+				var row := ""
+				for dx in range(-2, 3):
+					row += str(world.cell_kind(floori(pp.x / 2.5) + dx, floori(pp.z / 2.5) + dz))
+				kinds.append(row)
+			print("kinds ", kinds)
+			print("player ", pp, " chunk ", cc, " blocked ", world.point_blocked(pp.x, pp.z), " occ ", occ_img.get_pixelv(Vector2i(op)).r, " cell boxes ", cbx)
 			var fwd := -player.global_transform.basis.z
 			for dist in [2.0, 4.0, 6.0, 8.0]:
 				var w: Vector3 = player.global_position + fwd * dist

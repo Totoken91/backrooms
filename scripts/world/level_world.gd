@@ -375,7 +375,8 @@ func cell_fixtures(x: int, z: int) -> Array:
 	var k := Vector2i(x, z)
 	if _maze_fixtures.has(k):
 		return _maze_fixtures[k]
-	var chance := clampf((light_density(x, z) - 0.28) * 1.25, 0.0, 0.7)
+	# Sparse stretches keep a few panels: never a pitch-black quarter.
+	var chance := clampf(0.18 + (light_density(x, z) - 0.3) * 1.0, 0.18, 0.7)
 	var result := []
 	if float(channel("fixtures.place", [x, z]) % 1000) / 1000.0 < chance:
 		var slot := channel("fixtures.slot", [x, z]) % 12
