@@ -23,6 +23,10 @@ var _was_captured := false
 var _panel_generation := -1
 var _capturing := false
 var _frame_times := PackedFloat32Array()
+var _session := 0.0
+## Light view (F7): normal, direct only, indirect only, albedo.
+var _light_view := 0
+const LIGHT_VIEWS := [[0.0, "normale"], [8.0, "directe seule"], [9.0, "indirecte seule"], [6.0, "albédo"]]
 
 
 func _ready() -> void:
@@ -113,6 +117,8 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 	# The capture window must not take mouse input: views stay as defined.
 	player.set_process_unhandled_input(false)
 	player.set_process_input(false)
+	if options.has("skate"):
+		player.toggle_skate()
 	for n in names:
 		if not view(n):
 			continue
@@ -247,7 +253,7 @@ func view(name: String) -> bool:
 	if not world.views.has(name):
 		return false
 	var v: Dictionary = world.views[name]
-	player.place(v.position, v.yaw, v.get("pitch", 0.0))
+	player.place(v.position, v.yaw, float(options.pitch) if options.has("pitch") else v.get("pitch", 0.0))
 	streamer.update(player.global_position)
 	lights.refresh_panels()
 	return true
@@ -267,10 +273,15 @@ func _process(delta: float) -> void:
 	if _was_captured and not captured and running and not _capturing:
 		set_paused(true)
 	_was_captured = captured
+	player.light = streamer.light_at(player.global_position)
+	if running:
+		_session += delta
+	_frame_times.append(delta * 1000.0)
+	if _frame_times.size() > 240:
+		_frame_times.remove_at(0)
+	_ui.skate.visible = player.skating and not debug
 	if debug:
-		_frame_times.append(delta * 1000.0)
-		if _frame_times.size() > 240:
-			_frame_times.remove_at(0)
+		_ui.graph.push(delta * 1000.0)
 		_update_debug()
 
 
@@ -278,6 +289,19 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_ESCAPE:
 		if started:
 			set_paused(not paused)
+		get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_F3:
+		debug = not debug
+		_ui.debug_panel.visible = debug
+		get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_K:
+		if started and not paused:
+			player.toggle_skate()
+		get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_F7:
+		_light_view = (_light_view + 1) % LIGHT_VIEWS.size()
+		for m in streamer.materials.values():
+			m.set_shader_parameter("debug_view", LIGHT_VIEWS[_light_view][0])
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if started and not paused and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
@@ -447,7 +471,7 @@ func _build_ui() -> void:
 	var go := _button("Explorer", true)
 	go.pressed.connect(start)
 	tv.add_child(go)
-	tv.add_child(_label("ZQSD / WASD · Souris · Maj pour sprinter · Échap pour la pause", 11, Color(0.73, 0.72, 0.65)))
+	tv.add_child(_label("ZQSD / WASD · Souris · Maj pour sprinter · K skate · F3 debug · Échap pour la pause", 11, Color(0.73, 0.72, 0.65)))
 	var build := _label("ÉTUDE %s · NOUVELLE GRAINE À CHAQUE LANCEMENT" % BUILD, 9, Color(0.64, 0.62, 0.55))
 	tv.add_child(build)
 	layer.add_child(title)
@@ -493,15 +517,40 @@ func _build_ui() -> void:
 	pv.add_child(seed_label)
 	_ui.pause = shade
 	_ui.seed = seed_label
-	# Development readout.
-	var dbg := _label("", 12, Color(0.94, 1.0, 0.6))
+	# Debug interface (F3): readout and frame-time graph.
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.02, 0.02, 0.015, 0.72)
+	style.set_content_margin_all(10)
+	style.set_corner_radius_all(3)
+	panel.add_theme_stylebox_override("panel", style)
+	panel.position = Vector2(10, 10)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var dv := VBoxContainer.new()
+	dv.add_theme_constant_override("separation", 6)
+	panel.add_child(dv)
+	var dbg := _label("", 12, Color(0.94, 1.0, 0.72))
 	dbg.autowrap_mode = TextServer.AUTOWRAP_OFF
-	dbg.position = Vector2(10, 8)
-	dbg.add_theme_color_override("font_outline_color", Color.BLACK)
-	dbg.add_theme_constant_override("outline_size", 4)
-	dbg.visible = debug
-	layer.add_child(dbg)
+	dbg.add_theme_constant_override("line_spacing", 1)
+	dv.add_child(dbg)
+	var graph := FrameGraph.new()
+	graph.custom_minimum_size = Vector2(360, 56)
+	dv.add_child(graph)
+	panel.visible = debug
+	layer.add_child(panel)
 	_ui.debug = dbg
+	_ui.debug_panel = panel
+	_ui.graph = graph
+	# Skateboard reminder outside the debug view.
+	var skate := _label("SKATE · K pour descendre · Maj pour accélérer · S pour freiner", 11, Color(0.94, 0.92, 0.82))
+	skate.autowrap_mode = TextServer.AUTOWRAP_OFF
+	skate.add_theme_color_override("font_outline_color", Color.BLACK)
+	skate.add_theme_constant_override("outline_size", 4)
+	skate.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	skate.position = Vector2(14, -30)
+	skate.visible = false
+	layer.add_child(skate)
+	_ui.skate = skate
 
 
 func _update_ui() -> void:
@@ -517,15 +566,28 @@ func _update_debug() -> void:
 	var sorted := _frame_times.duplicate()
 	sorted.sort()
 	var q := func(p: float) -> float: return sorted[mini(sorted.size() - 1, int(p * sorted.size()))] if sorted.size() else 0.0
-	var raw := "?"
-	if OS.has_feature("web"):
-		raw = str(JavaScriptBridge.eval("window.__rawPointer", true))
-	_ui.debug.text = "\n".join([
-		"FPS %d · image p50 %.1f / p95 %.1f / max %.1f ms" % [Engine.get_frames_per_second(), q.call(0.5), q.call(0.95), q.call(1.0)],
-		"souris: capture %s · brute %s · paquets %d · max %.0f px" % [Input.mouse_mode == Input.MOUSE_MODE_CAPTURED, raw, player.look_events, player.look_max_delta],
-		"chunks %d · lumière en attente %d · construction %.1f ms (max %.1f)" % [streamer.chunks.size(), streamer.pending_bakes(), streamer.last_build_ms, streamer.max_build_ms],
-		"lumières %s · draw calls %d" % [lights.stats(), RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)],
-		"position %s · yaw %.2f" % [player.global_position.snapped(Vector3.ONE * 0.01), player.yaw()],
+	var p := player.global_position
+	var cell := Vector2i(floori(p.x / LevelWorld.CELL), floori(p.z / LevelWorld.CELL))
+	var kind := world.cell_kind(cell.x, cell.y)
+	var zone: String = ["labyrinthe", "mur", "site C01"][clampi(kind, 0, 2)]
+	var yaw_deg := fposmod(rad_to_deg(player.yaw()), 360.0)
+	var heading: String = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"][int(round(yaw_deg / 45.0)) % 8]
+	var light := streamer.light_at(p)
+	var mode := "skate" if player.skating else ("sprint" if Input.is_physical_key_pressed(KEY_SHIFT) else "marche")
+	var mb := func(bytes: float) -> String: return "%.0f Mo" % (bytes / 1048576.0)
+	var size := get_viewport().get_visible_rect().size
+	_ui.debug.text = "
+".join([
+		"HORS PLAN · DEBUG    F3 masquer · K skate · F7 vue lumière · Échap pause",
+		"FPS %d · image p50 %.1f / p95 %.1f / max %.1f ms · %dx%d" % [Engine.get_frames_per_second(), q.call(0.5), q.call(0.95), q.call(1.0), size.x, size.y],
+		"graine %d · %s · %s" % [world.seed, LevelWorld.VERSION, BUILD],
+		"position x %.2f  y %.2f  z %.2f · cellule (%d, %d) · chunk %s" % [p.x, p.y, p.z, cell.x, cell.y, WorldStreamer.chunk_of(p)],
+		"cap %.0f° %s · tangage %.0f°" % [yaw_deg, heading, rad_to_deg(player.pitch())],
+		"%s · %.1f m/s (%.0f km/h) · parcouru %.0f m · session %d:%02d" % [mode, player.speed, player.speed * 3.6, player.walked, int(_session) / 60, int(_session) % 60],
+		"zone %s · densité néons %.2f · néons dans la cellule %d" % [zone, world.light_density(cell.x, cell.y), world.cell_fixtures(cell.x, cell.y).size()],
+		"lumière au sol E/π %.3f (r %.3f g %.3f b %.3f) · vue %s" % [(light.r + light.g + light.b) / 3.0, light.r, light.g, light.b, LIGHT_VIEWS[_light_view][1]],
+		"chunks %d · calculs lumière en attente %d · bake %.1f ms (n° %d) · construction %.1f ms (max %.1f)" % [streamer.chunks.size(), streamer.pending_bakes(), streamer.baker.last_ms, streamer.baker.renders, streamer.last_build_ms, streamer.max_build_ms],
+		"draw calls %d · primitives %d · VRAM %s · mémoire %s" % [RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME), RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME), mb.call(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED)), mb.call(Performance.get_monitor(Performance.MEMORY_STATIC))],
 	])
 
 

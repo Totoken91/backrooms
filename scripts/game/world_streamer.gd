@@ -251,3 +251,17 @@ func panels() -> Array:
 ## Flicker currently drives the panel's emission only (baked light is steady).
 func set_fixture_power(_f, _power: float) -> void:
 	pass
+
+
+## Linear irradiance / π on the floor at `p` (direct + indirect), from the
+## composited light maps; black outside the loaded region.
+func light_at(p: Vector3) -> Color:
+	var r := region_rect()
+	var px := Vector2i(((Vector2(p.x, p.z) - r.position) / LightBaker.TEXEL).floor())
+	if light_images.is_empty() or not Rect2i(Vector2i.ZERO, light_images[0].get_size()).has_point(px):
+		return Color.BLACK
+	var d := light_images[0].get_pixelv(px).r
+	var b := light_images[7].get_pixelv(px)
+	var e := d * d * LightBaker.E_MAX
+	var k := LightBaker.I_MAX
+	return Color(e + b.r * b.r * k, e * 0.97 + b.g * b.g * k, e * 0.9 + b.b * b.b * k) / PI
