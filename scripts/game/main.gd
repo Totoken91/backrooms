@@ -32,10 +32,20 @@ func _ready() -> void:
 	_build_environment()
 	_build_ui()
 	lights.streamer = streamer
+	# Development: isolate each lighting component (lights=0, field=0).
+	if options.get("lights") == "0":
+		lights.energy = 0.0
+	if options.get("field") == "0":
+		for m in streamer.materials.values():
+			m.set_shader_parameter("field_strength", 0.0)
 	player.stepped.connect(ambience.step)
 	new_exploration(int(options.seed) if options.has("seed") else -1)
 	if options.has("view"):
 		view(options.view)
+	# Development: arbitrary viewpoint, at=x,z,yaw (metres, radians).
+	if options.has("at"):
+		var a := str(options.at).split(",")
+		world.views["at"] = {"position": Vector3(float(a[0]), 0, float(a[1])), "yaw": float(a[2]), "label": "at"}
 	_update_ui()
 	if options.has("shots"):
 		_capture(str(options.shots).split(","), str(options.get("out", "user://")))
@@ -53,7 +63,7 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 		while (streamer.pending_bakes() > 0 and waited < 1200) or waited < 90:
 			await get_tree().process_frame
 			waited += 1
-		var path := folder.path_join("godot-s%d-%s.png" % [world.seed, n])
+		var path := folder.path_join("godot-s%d-%s%s.png" % [world.seed, n, str(options.get("tag", ""))])
 		get_viewport().get_texture().get_image().save_png(path)
 		print("capture ", path, " fps ", Engine.get_frames_per_second(), " bakes ", streamer.pending_bakes(), " build max ", streamer.max_build_ms, " phases ", streamer.chunks.get(Vector2i(0, 0)).phases if streamer.chunks.has(Vector2i(0, 0)) else {}, " chunks ", streamer.chunks.size())
 	get_tree().quit()

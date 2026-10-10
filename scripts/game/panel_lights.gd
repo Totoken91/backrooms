@@ -4,13 +4,17 @@ extends Node3D
 ## spots), and the flicker that drives both those lights and every panel's
 ## emission. The irradiance field carries all other panels.
 
-const POOL := 4
-const SELECT_RADIUS := 14.0
+const POOL := 6
+## Real lights fade in between these distances: the baked field already
+## carries each panel, they only add shadows and highlights near the player.
+const FADE_NEAR := 5.0
+const FADE_FAR := 11.0
+const SELECT_RADIUS := 12.0
 const LIGHT_COLOR := Color(1.0, 0.95, 0.82)
 
 var streamer: WorldStreamer
 var reduced_motion := false
-var energy := 1.25
+var energy := 0.55
 var shadows := true
 
 var _lights: Array[SpotLight3D] = []
@@ -33,9 +37,9 @@ func _ready() -> void:
 		light.light_energy = 0.0
 		light.light_specular = 0.25
 		light.shadow_enabled = shadows
-		light.shadow_bias = 0.04
-		light.shadow_normal_bias = 1.0
-		light.shadow_blur = 1.5
+		light.shadow_bias = 0.1
+		light.shadow_normal_bias = 2.0
+		light.shadow_blur = 2.5
 		light.rotation = Vector3(-PI / 2, 0, 0)
 		light.visible = false
 		add_child(light)
@@ -78,7 +82,8 @@ func update(delta: float, camera: Camera3D, running: bool) -> void:
 		var f = _assigned[i]
 		var target := 0.0
 		if f != null:
-			target = power(_time, f.seed, reduced_motion) * energy
+			var d := Vector2(f.x - eye.x, f.z - eye.z).length()
+			target = power(_time, f.seed, reduced_motion) * energy * (1.0 - smoothstep(FADE_NEAR, FADE_FAR, d))
 		# Lights fade in and out over ~0.25 s when the selection changes.
 		var current := light.light_energy
 		if f == null or light.visible:
