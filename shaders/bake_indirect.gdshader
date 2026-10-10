@@ -104,14 +104,18 @@ void fragment() {
 			}
 			if (length(wall_normal) > 0.0) wall_normal = normalize(wall_normal);
 		}
-		const int AZ = 12;
+		// Rays: 16 azimuths × 6 elevations, the pattern rotated and jittered per
+		// texel (a fixed pattern draws streaks); the denoise pass smooths it.
+		float rot = fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+		float lift = fract(sin(dot(p, vec2(39.3468, 11.135))) * 24634.6345);
+		const int AZ = 16;
 		const int EL = 6;
 		float weight = 4.0 * PI / float(AZ * EL);
 		for (int e = 0; e < EL; e++) {
-			float cz = 1.0 - 2.0 * (float(e) + 0.5) / float(EL);   // uniform in cos
+			float cz = 1.0 - 2.0 * (float(e) + lift) / float(EL);   // stratified, uniform in cos
 			float sz = sqrt(1.0 - cz * cz);
 			for (int a = 0; a < AZ; a++) {
-				float phi = (float(a) + 0.5 * float(e % 2)) * 2.0 * PI / float(AZ);
+				float phi = (float(a) + rot + 0.5 * float(e % 2)) * 2.0 * PI / float(AZ);
 				vec3 dir = vec3(cos(phi) * sz, cz, sin(phi) * sz);
 				float facing;
 				if (tile < 0.5) facing = dir.y;

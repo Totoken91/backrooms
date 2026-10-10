@@ -73,11 +73,14 @@ void fragment() {
 		for (int i = 0; i < fix_count; i++) {
 			vec4 f = texelFetch(fix_tex, ivec2(i, 0), 0);
 			if (distance(f.xy, p) > reach || f.z <= 0.0) continue;
-			for (int s = 0; s < 4; s++) {
-				vec2 q = f.xy + vec2(s % 2 == 0 ? -0.3 : 0.3, s < 2 ? -0.15 : 0.15);
+			// 4 × 2 points over the 1.2 × 0.6 m diffuser, shifted per texel so the
+			// penumbrae through openings are smooth after the denoise pass.
+			vec2 jit = (vec2(fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453), fract(sin(dot(p, vec2(39.3468, 11.135))) * 24634.6345)) - 0.5) * vec2(0.3, 0.3);
+			for (int s = 0; s < 8; s++) {
+				vec2 q = f.xy + vec2((float(s % 4) - 1.5) * 0.3, s < 4 ? -0.15 : 0.15) + jit;
 				if (visible(p, q) < 0.5) continue;
-				// dA = panel area / 4; radiance f.z; E += L cos cos dA / d².
-				float w = f.z * 0.18375;
+				// dA = panel area / 8; radiance f.z; E += L cos cos dA / d².
+				float w = f.z * 0.091875;
 				vec3 lp = vec3(q.x, ceiling - 0.01, q.y);
 				vec3 v = lp - vec3(p.x, 0.02, p.y);
 				float d2 = dot(v, v);

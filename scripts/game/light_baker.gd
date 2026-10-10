@@ -29,6 +29,7 @@ var _viewport: SubViewport
 var _rect: ColorRect
 var _direct := ShaderMaterial.new()
 var _indirect := ShaderMaterial.new()
+var _filter := ShaderMaterial.new()
 
 
 func _ready() -> void:
@@ -43,7 +44,8 @@ func _ready() -> void:
 	_viewport.add_child(_rect)
 	_direct.shader = preload("res://shaders/bake_direct.gdshader")
 	_indirect.shader = preload("res://shaders/bake_indirect.gdshader")
-	for m in [_direct, _indirect]:
+	_filter.shader = preload("res://shaders/bake_filter.gdshader")
+	for m in [_direct, _indirect, _filter]:
 		m.set_shader_parameter("texel", TEXEL)
 		m.set_shader_parameter("tiles", float(TILES))
 		m.set_shader_parameter("res", float(RES))
@@ -83,11 +85,31 @@ func _set_occupancy(m: ShaderMaterial, img: Image) -> void:
 	m.set_shader_parameter("occ_size", Vector2(img.get_size()))
 
 
-func _render(m: ShaderMaterial) -> Array:
+## Renders `m`, then (denoise > 0) the wall-aware blur of that result with
+## that radius in texels.
+func _render(m: ShaderMaterial, denoise := 0) -> Array:
 	while busy:
 		await get_tree().process_frame
 	busy = true
 	var started := Time.get_ticks_usec()
+	var img := await _draw(m)
+	if denoise > 0:
+		for key in ["occ_tex", "occ_origin", "occ_size"]:
+			_filter.set_shader_parameter(key, m.get_shader_parameter(key))
+		_filter.set_shader_parameter("src", ImageTexture.create_from_image(img))
+		_filter.set_shader_parameter("radius", denoise)
+		_filter.set_shader_parameter("sigma", denoise * 0.6)
+		img = await _draw(_filter)
+	var tiles := []
+	for t in TILES:
+		tiles.append(img.get_region(Rect2i(t * RES, 0, RES, RES)))
+	busy = false
+	renders += 1
+	last_ms = (Time.get_ticks_usec() - started) / 1000.0
+	return tiles
+
+
+func _draw(m: ShaderMaterial) -> Image:
 	_rect.material = m
 	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 	# The material change reaches the canvas one frame late: read back after
@@ -97,13 +119,7 @@ func _render(m: ShaderMaterial) -> Array:
 	await RenderingServer.frame_post_draw
 	var img := _viewport.get_texture().get_image()
 	img.convert(Image.FORMAT_RGBA8)
-	var tiles := []
-	for t in TILES:
-		tiles.append(img.get_region(Rect2i(t * RES, 0, RES, RES)))
-	busy = false
-	renders += 1
-	last_ms = (Time.get_ticks_usec() - started) / 1000.0
-	return tiles
+	return img
 
 
 ## Pass 1. Returns 3 images (see bake_direct.gdshader for the channels).
@@ -123,7 +139,7 @@ func direct(world: LevelWorld, coord: Vector2i) -> Array:
 	_direct.set_shader_parameter("fix_tex", ImageTexture.create_from_image(fix))
 	_direct.set_shader_parameter("fix_count", fixtures.size())
 	_set_occupancy(_direct, _occupancy(world, coord))
-	return await _render(_direct)
+	return await _render(_direct, 1)
 
 
 ## Gather pass. `maps` are the 3 direct then the 3 first-gather textures of
@@ -140,4 +156,4 @@ func indirect(world: LevelWorld, coord: Vector2i, maps: Array, region: Rect2, se
 	_indirect.set_shader_parameter("wall_albedo", albedo.wall)
 	_indirect.set_shader_parameter("floor_albedo", albedo.floor)
 	_indirect.set_shader_parameter("ceiling_albedo", albedo.ceiling)
-	return await _render(_indirect)
+	return await _render(_indirect, 3)
