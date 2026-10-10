@@ -9,11 +9,15 @@ const H := LevelWorld.HEIGHT
 const TILE := 0.625
 const WALL_UV := 0.6
 const FIELD_RES := 32
+const AO_RES := 128
+## Falloff length of contact occlusion (m).
+const AO_RADIUS := 0.22
 const LIP := 0.018
 
 var coord: Vector2i
 var fixtures: Array = []
 var field: Image
+var ao: Image
 var field_ready := false
 var build_ms := 0.0
 var built := false
@@ -297,7 +301,43 @@ func set_panel_power(index: int, power: float) -> void:
 ## Bakes the chunk's field against the physics colliders of the loaded
 ## neighbourhood (rays at 1.4 m: lintels are not occluders). Yields to keep
 ## each frame's share under `slice_ms`.
+## Fine contact occlusion, 0.3125 m texels: exact distance to the full-height
+## wall boxes, summed so inner corners darken more than straight walls.
+func _bake_ao(slice_ms: float) -> void:
+	var slice_start := Time.get_ticks_usec()
+	ao = Image.create(AO_RES, AO_RES, false, Image.FORMAT_L8)
+	var texel := CELL * CHUNK / AO_RES
+	var bx := coord.x * CHUNK * CELL
+	var bz := coord.y * CHUNK * CELL
+	for iz in AO_RES:
+		var wz := bz + (iz + 0.5) * texel
+		for ix in AO_RES:
+			var wx := bx + (ix + 0.5) * texel
+			var occ := 0.0
+			var cx0 := floori((wx - 1.0) / CELL)
+			var cz0 := floori((wz - 1.0) / CELL)
+			for cz in range(cz0, floori((wz + 1.0) / CELL) + 1):
+				for cx in range(cx0, floori((wx + 1.0) / CELL) + 1):
+					for b in _world.cell_boxes(cx, cz):
+						if not b.occluder:
+							continue
+						var dx: float = wx - clampf(wx, b.x0, b.x1)
+						var dz: float = wz - clampf(wz, b.z0, b.z1)
+						occ += exp(-sqrt(dx * dx + dz * dz) / AO_RADIUS)
+			ao.set_pixel(ix, iz, Color.from_hsv(0, 0, clampf(1.0 - occ * 0.3, 0.0, 1.0)))
+		if Time.get_ticks_usec() - slice_start > slice_ms * 1000.0:
+			bake_ms += (Time.get_ticks_usec() - slice_start) / 1000.0
+			await get_tree().process_frame
+			if not is_inside_tree():
+				return
+			slice_start = Time.get_ticks_usec()
+	bake_ms += (Time.get_ticks_usec() - slice_start) / 1000.0
+
+
 func bake_field(space: PhysicsDirectSpaceState3D, nearby: Array, slice_ms: float) -> void:
+	await _bake_ao(slice_ms)
+	if not is_inside_tree():
+		return
 	var started := Time.get_ticks_usec()
 	var slice_start := started
 	field = Image.create(FIELD_RES, FIELD_RES, false, Image.FORMAT_RGBA8)

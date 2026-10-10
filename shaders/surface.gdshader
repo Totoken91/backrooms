@@ -19,8 +19,18 @@ uniform bool wall_damp = false;
 
 uniform sampler2D field_tex : filter_linear, repeat_disable;
 uniform vec4 field_rect = vec4(0.0, 0.0, 200.0, 200.0);
+// Fine contact occlusion over the same area as the field (0.3125 m texels).
+uniform sampler2D ao_tex : filter_linear, repeat_disable;
+uniform float ao_strength = 0.7;
 uniform float field_strength = 1.75;
 uniform float ceiling_height = 2.8;
+// Level 0 light itself is yellow: every surface is bathed in it.
+uniform vec3 light_tint : source_color = vec3(1.0, 0.87, 0.5);
+uniform float wall_level = 0.22;
+uniform float floor_level = 0.31;
+uniform float ceiling_level = 0.11;
+// Even bounce light that fills every face, shadowed sides included.
+uniform float ambient_level = 0.3;
 
 // Panels around the player, one texel per 2.5 m cell: RG = panel centre
 // within the cell, B = live power, A = 1 if the cell has a panel. Every panel
@@ -66,10 +76,13 @@ void fragment() {
 		color = mix(color, color * vec3(0.68, 0.71, 0.52), damp * 0.23);
 	}
 	if (ceiling_grid) {
-		vec2 q = fract(UV);
-		float seam = max(1.0 - smoothstep(0.003, 0.012, min(q.x, 1.0 - q.x)), 1.0 - smoothstep(0.003, 0.012, min(q.y, 1.0 - q.y)));
-		color *= 0.97 + 0.05 * hash(floor(UV));
-		color = mix(color, vec3(0.46, 0.45, 0.36), seam * 0.4);
+		// 2 × 4 ft tiles (0.625 × 1.25 m) with thin, light T-bar seams.
+		vec2 tile = UV * vec2(1.0, 0.5);
+		vec2 q = fract(tile);
+		vec2 width = fwidth(tile) * 1.2;
+		float seam = max(1.0 - smoothstep(0.0, width.x + 0.004, min(q.x, 1.0 - q.x)), 1.0 - smoothstep(0.0, width.y + 0.002, min(q.y, 1.0 - q.y)));
+		color *= 0.975 + 0.035 * hash(floor(tile));
+		color = mix(color, color * 0.86, seam * 0.6);
 	}
 	ALBEDO = color;
 	ROUGHNESS = clamp(texture(rough_tex, UV).r * roughness_scale, 0.05, 1.0);
@@ -82,13 +95,19 @@ void fragment() {
 	vec4 field = texture(field_tex, fuv);
 	float h = clamp(world_pos.y / ceiling_height, 0.0, 1.0);
 	float irradiance = mix(field.r, field.g, h * h);
-	float contact = mix(field.b, 1.0, smoothstep(0.1, 0.85, world_pos.y));
 	float vertical = 1.0 - abs(world_normal.y);
-	float cove = 1.0 - 0.15 * exp(-(ceiling_height - world_pos.y) * 13.0) * vertical;
-	float skirting = 1.0 - 0.18 * exp(-world_pos.y * 12.0) * vertical;
+	// Contact occlusion: full on the floor, fading up the wall from its foot
+	// and down from the ceiling, so corners and junctions darken softly.
+	float occlusion = texture(ao_tex, (world_pos.xz + world_normal.xz * 0.03 - field_rect.xy) / field_rect.zw).r;
+	float near_floor = 1.0 - smoothstep(0.0, 0.35, world_pos.y);
+	float near_ceiling = 1.0 - smoothstep(0.0, 0.4, ceiling_height - world_pos.y);
+	float junction = world_normal.y > 0.5 ? 1.0 : (world_normal.y < -0.5 ? 0.6 : max(near_floor * 0.7, near_ceiling * 0.4));
+	float contact = mix(1.0, occlusion, junction * ao_strength);
+	float cove = 1.0;
+	float skirting = 1.0;
 	// Office light reads even: walls as bright as the floor, ceiling a bit less.
-	float facing = world_normal.y < -0.5 ? 0.4 : (world_normal.y > 0.5 ? 0.64 : 0.58);
-	EMISSION = color * irradiance * contact * cove * skirting * facing * field_strength;
+	float facing = world_normal.y < -0.5 ? ceiling_level : (world_normal.y > 0.5 ? floor_level : wall_level);
+	EMISSION = color * light_tint * (irradiance * facing * field_strength + ambient_level) * contact * cove * skirting;
 
 	// Direct light of the panels in the 3 × 3 cells around the fragment: a
 	// downward cone gives the pool on the carpet and the arcs on the walls.
@@ -120,5 +139,5 @@ void fragment() {
 	}
 	// Walls only: fluorescent troffers light carpets evenly, round pools on the
 	// floor read as theatre spotlights.
-	EMISSION += color * direct * field.a * contact * direct_strength * vertical;
+	EMISSION += color * light_tint * direct * field.a * contact * direct_strength * vertical;
 }

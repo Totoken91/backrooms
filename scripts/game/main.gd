@@ -35,6 +35,17 @@ func _ready() -> void:
 	# Development: isolate each lighting component (lights=0, field=0).
 	if options.get("lights") == "0":
 		lights.energy = 0.0
+	# Development: tune=param:value,... on surface materials; env.<prop>:value on
+	# the Environment (e.g. env.fog_density:0.02).
+	if options.has("tune"):
+		for pair in str(options.tune).split(","):
+			var kv := pair.split(":")
+			var value: Variant = float(kv[1]) if kv.size() == 2 else Color(float(kv[1]), float(kv[2]), float(kv[3]))
+			if kv[0].begins_with("env."):
+				environment.environment.set(kv[0].trim_prefix("env."), value)
+			else:
+				for m in streamer.materials.values():
+					m.set_shader_parameter(kv[0], value)
 	if options.get("field") == "0":
 		for m in streamer.materials.values():
 			m.set_shader_parameter("field_strength", 0.0)
@@ -183,9 +194,9 @@ func _surface(base: String, extra := {}) -> ShaderMaterial:
 
 func _build_materials() -> void:
 	streamer.materials = {
-		"wall": _surface("wallpaper", {"wall_damp": true, "normal_strength": 0.25}),
-		"skirting": _surface("skirting", {"normal_strength": 0.3, "roughness_scale": 0.85}),
-		"floor": _surface("carpet", {"normal_strength": 0.8, "tint": Color(0.84, 0.8, 0.66)}),
+		"wall": _surface("wallpaper", {"wall_damp": true, "normal_strength": 0.25, "tint": Color(0.93, 1.0, 1.02)}),
+		"skirting": _surface("skirting", {"normal_strength": 0.3, "roughness_scale": 0.85, "tint": Color(1.25, 1.2, 1.1)}),
+		"floor": _surface("carpet", {"normal_strength": 0.8, "tint": Color(0.86, 0.92, 1.18)}),
 		"ceiling": _surface("ceiling", {"ceiling_grid": true, "normal_strength": 0.4}),
 	}
 	var panel := ShaderMaterial.new()
@@ -228,18 +239,19 @@ func _build_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(1.0, 0.92, 0.72)
 	env.ambient_light_energy = 0.04
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.0
+	# AgX desaturates highlights like the reference renders (pale walls near
+	# the panels instead of lemon yellow). Levels calibrated on USER-LUMIERE.
+	env.tonemap_mode = Environment.TONE_MAPPER_AGX
+	env.tonemap_exposure = 1.6
 	env.glow_enabled = true
 	env.glow_intensity = 0.55
 	env.glow_bloom = 0.04
 	env.glow_hdr_threshold = 1.0
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.1, 0.09, 0.05)
-	env.fog_density = 0.012
+	# No fog: Level 0 has no haze; distance is carried by light and geometry.
+	env.fog_enabled = false
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.14
+	env.adjustment_saturation = 1.0
 	environment.environment = env
 
 

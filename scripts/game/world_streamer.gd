@@ -23,6 +23,8 @@ var field_image: Image
 var field_texture: ImageTexture
 ## Panels of the field area, one texel per cell (see surface.gdshader).
 var fixture_image: Image
+var ao_image: Image
+var ao_texture: ImageTexture
 var fixture_texture: ImageTexture
 var _fixture_pixels := {}
 var _fixtures_dirty := false
@@ -40,6 +42,9 @@ func _ready() -> void:
 	field_image = Image.create(SPAN, SPAN, false, Image.FORMAT_RGBA8)
 	field_image.fill(Color(0.11, 0.14, 1, 1))
 	field_texture = ImageTexture.create_from_image(field_image)
+	ao_image = Image.create((RADIUS * 2 + 1) * Chunk.AO_RES, (RADIUS * 2 + 1) * Chunk.AO_RES, false, Image.FORMAT_L8)
+	ao_image.fill(Color.WHITE)
+	ao_texture = ImageTexture.create_from_image(ao_image)
 	var cells := (RADIUS * 2 + 1) * LevelWorld.CHUNK
 	fixture_image = Image.create(cells, cells, false, Image.FORMAT_RGBA8)
 	fixture_texture = ImageTexture.create_from_image(fixture_image)
@@ -165,7 +170,11 @@ func _composite() -> void:
 			var chunk: Chunk = chunks.get(center + Vector2i(dx, dz))
 			if chunk and chunk.field_ready:
 				field_image.blit_rect(chunk.field, Rect2i(0, 0, FIELD_RES, FIELD_RES), Vector2i((dx + RADIUS) * FIELD_RES, (dz + RADIUS) * FIELD_RES))
+				ao_image.blit_rect(chunk.ao, Rect2i(0, 0, Chunk.AO_RES, Chunk.AO_RES), Vector2i((dx + RADIUS) * Chunk.AO_RES, (dz + RADIUS) * Chunk.AO_RES))
+			else:
+				ao_image.fill_rect(Rect2i((dx + RADIUS) * Chunk.AO_RES, (dz + RADIUS) * Chunk.AO_RES, Chunk.AO_RES, Chunk.AO_RES), Color.WHITE)
 	field_texture.update(field_image)
+	ao_texture.update(ao_image)
 	var size := SPAN * LevelWorld.CELL * LevelWorld.CHUNK / float(FIELD_RES)
 	var rect := Vector4((center.x - RADIUS) * LevelWorld.CHUNK * LevelWorld.CELL, (center.y - RADIUS) * LevelWorld.CHUNK * LevelWorld.CELL, size, size)
 	# Panel map: every loaded panel of the field area, at nominal power.
@@ -191,6 +200,7 @@ func _composite() -> void:
 		if m is ShaderMaterial:
 			m.set_shader_parameter("field_tex", field_texture)
 			m.set_shader_parameter("field_rect", rect)
+			m.set_shader_parameter("ao_tex", ao_texture)
 			m.set_shader_parameter("fixture_tex", fixture_texture)
 			m.set_shader_parameter("fixture_origin", Vector2(origin))
 			m.set_shader_parameter("fixture_cells", float(cells))
