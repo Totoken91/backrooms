@@ -1,44 +1,41 @@
 shader_type spatial;
-// Level 0 surfaces. Godot lights (the nearest panels, with shadows) light the
-// material physically; the precomputed irradiance field adds the light of all
-// other panels as emission, sampled by world position. UVs are world-space
-// metres divided by the finish's tile size, so seams never depend on meshing.
-render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_lambert, specular_schlick_ggx;
+// Level 0 surfaces, lit only by the GPU-baked light of the panels
+// (LightBaker): direct irradiance for the floor and for walls at two heights
+// and four orientations, plus one coloured bounce, plus fine contact
+// occlusion. Outgoing light = albedo × irradiance / π, tonemapped by AgX like
+// the Cycles truth renders. UVs are world-space metres / tile size.
+render_mode unshaded, cull_back;
 
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D rough_tex : hint_roughness_r, filter_linear_mipmap, repeat_enable;
-uniform vec3 tint : source_color = vec3(1.0);
-uniform float normal_strength = 0.6;
-uniform float roughness_scale = 1.0;
-uniform float metallic = 0.0;
-// 1 draws the 0.625 m suspended-ceiling grid from the UVs.
+// Linear multiplier on the linear albedo (the Cycles material tints).
+uniform vec3 tint = vec3(1.0);
+// 1 draws the 2 × 4 ft suspended-ceiling grid from the UVs.
 uniform bool ceiling_grid = false;
 // 1 adds a little damp near the floor (wallpaper).
 uniform bool wall_damp = false;
 
-uniform sampler2D field_tex : filter_linear, repeat_disable;
-uniform vec4 field_rect = vec4(0.0, 0.0, 200.0, 200.0);
-// Fine contact occlusion over the same area as the field (0.3125 m texels).
+uniform sampler2D direct0 : filter_linear, repeat_disable;
+uniform sampler2D direct1 : filter_linear, repeat_disable;
+uniform sampler2D direct2 : filter_linear, repeat_disable;
+uniform sampler2D bounce0 : filter_linear, repeat_disable;
+uniform sampler2D bounce1 : filter_linear, repeat_disable;
+uniform sampler2D bounce2 : filter_linear, repeat_disable;
 uniform sampler2D ao_tex : filter_linear, repeat_disable;
+uniform vec4 light_rect = vec4(0.0, 0.0, 280.0, 280.0);
+uniform vec3 panel_color = vec3(1.0, 0.97, 0.9);
+uniform float e_max = 6.0;
+uniform float i_max = 2.0;
+uniform float light_scale = 1.0;
 uniform float ao_strength = 0.7;
-uniform float field_strength = 1.75;
+// Roughness of the finish, for the faint white Fresnel reflection of a
+// dielectric (IOR 1.5) like Cycles' Principled BSDF: wall 0.85, floor 0.95,
+// ceiling 0.9.
+uniform float roughness = 0.9;
 uniform float ceiling_height = 2.8;
-// Level 0 light itself is yellow: every surface is bathed in it.
-uniform vec3 light_tint : source_color = vec3(1.0, 0.87, 0.5);
-uniform float wall_level = 0.22;
-uniform float floor_level = 0.31;
-uniform float ceiling_level = 0.11;
-// Even bounce light that fills every face, shadowed sides included.
-uniform float ambient_level = 0.3;
-
-// Panels around the player, one texel per 2.5 m cell: RG = panel centre
-// within the cell, B = live power, A = 1 if the cell has a panel. Every panel
-// lights its surroundings the same way at any distance from the player.
-uniform sampler2D fixture_tex : filter_nearest, repeat_disable;
-uniform vec2 fixture_origin = vec2(0.0);
-uniform float fixture_cells = 80.0;
-uniform float direct_strength = 0.7;
+// Development: 1 light-map coordinates, 2 raw direct map, 3 direct texture,
+// 4 AO, 5 grey 0.18, 6 albedo, 7 contact, 8 direct E / π, 9 indirect E / π
+// (8 and 9 with the raw option: linear tonemap, comparable to Cycles passes).
+uniform float debug_view = 0.0;
 
 varying vec3 world_pos;
 varying vec3 world_normal;
@@ -56,6 +53,25 @@ float noise(vec2 p) {
 	return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
 
+// The Compatibility renderer samples textures without sRGB decoding and reads
+// ALBEDO as sRGB (drivers/gles3/shaders/scene.glsl: SHADER_IS_SRGB, then
+// srgb_to_linear(albedo)). Light is computed in linear here, like Cycles, so
+// decode the textures and encode the result.
+vec3 to_linear(vec3 c) {
+	return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, lessThan(c, vec3(0.04045)));
+}
+
+vec3 to_srgb(vec3 c) {
+	return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, lessThan(c, vec3(0.0031308)));
+}
+
+// Wall irradiance at height y from its values at 0.6 and 2.1 m.
+float wall_height(float low, float high, float y) {
+	low = max(low, 1e-4);
+	high = max(high, 1e-4);
+	return low * pow(high / low, clamp((y - 0.6) / 1.5, -0.4, 1.4));
+}
+
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
@@ -65,8 +81,8 @@ void fragment() {
 	// Far away, fine prints alias whatever the filtering: fade towards the
 	// finish's average colour and flatten the relief.
 	float dist = length(VERTEX);
-	vec3 sampled = texture(albedo_tex, UV).rgb;
-	vec3 average = textureLod(albedo_tex, vec2(0.5), 10.0).rgb;
+	vec3 sampled = to_linear(texture(albedo_tex, UV).rgb);
+	vec3 average = to_linear(textureLod(albedo_tex, vec2(0.5), 10.0).rgb);
 	vec3 color = mix(sampled, average, smoothstep(5.0, 22.0, dist) * 0.85) * tint;
 	// Large-scale variation keeps big planes from looking printed.
 	color *= 0.95 + 0.08 * noise(world_pos.xz * 0.23 + world_pos.yy * 0.21);
@@ -84,60 +100,42 @@ void fragment() {
 		color *= 0.975 + 0.035 * hash(floor(tile));
 		color = mix(color, color * 0.86, seam * 0.6);
 	}
-	ALBEDO = color;
-	ROUGHNESS = clamp(texture(rough_tex, UV).r * roughness_scale, 0.05, 1.0);
-	METALLIC = metallic;
-	NORMAL_MAP = texture(normal_tex, UV).rgb;
-	NORMAL_MAP_DEPTH = normal_strength * (1.0 - smoothstep(3.0, 14.0, dist));
-
-	// Irradiance field: R near the floor, G near the ceiling, B contact AO.
-	vec2 fuv = (world_pos.xz + world_normal.xz * 0.2 - field_rect.xy) / field_rect.zw;
-	vec4 field = texture(field_tex, fuv);
-	float h = clamp(world_pos.y / ceiling_height, 0.0, 1.0);
-	float irradiance = mix(field.r, field.g, h * h);
-	float vertical = 1.0 - abs(world_normal.y);
+	vec2 at = (world_pos.xz + world_normal.xz * 0.13 - light_rect.xy) / light_rect.zw;
+	vec4 d0 = texture(direct0, at), d1 = texture(direct1, at), d2 = texture(direct2, at);
+	d0 = d0 * d0 * e_max; d1 = d1 * d1 * e_max; d2 = d2 * d2 * e_max;
+	vec3 direct;
+	vec3 bounce;
+	if (world_normal.y > 0.5) {
+		direct = vec3(d0.x);
+		vec3 b = texture(bounce0, at).rgb;
+		bounce = b * b * i_max;
+	} else if (world_normal.y < -0.5) {
+		direct = vec3(0.0);
+		vec3 b = texture(bounce1, at).rgb;
+		bounce = b * b * i_max;
+	} else {
+		// Walls: irradiance for the facing axis, interpolated between 0.6 and
+		// 2.1 m geometrically: under a panel the light rises steeply up the wall,
+		// and a linear extrapolation would reach zero at its foot.
+		float low = world_normal.x > 0.5 ? d0.y : world_normal.x < -0.5 ? d0.z : world_normal.z > 0.5 ? d0.w : d1.x;
+		float high = world_normal.x > 0.5 ? d1.y : world_normal.x < -0.5 ? d1.z : world_normal.z > 0.5 ? d1.w : d2.x;
+		direct = vec3(wall_height(low, high, world_pos.y));
+		vec3 b = texture(bounce2, at).rgb;
+		bounce = b * b * i_max;
+	}
 	// Contact occlusion: full on the floor, fading up the wall from its foot
 	// and down from the ceiling, so corners and junctions darken softly.
-	float occlusion = texture(ao_tex, (world_pos.xz + world_normal.xz * 0.03 - field_rect.xy) / field_rect.zw).r;
+	float occlusion = texture(ao_tex, (world_pos.xz + world_normal.xz * 0.03 - light_rect.xy) / light_rect.zw).r;
 	float near_floor = 1.0 - smoothstep(0.0, 0.35, world_pos.y);
 	float near_ceiling = 1.0 - smoothstep(0.0, 0.4, ceiling_height - world_pos.y);
 	float junction = world_normal.y > 0.5 ? 1.0 : (world_normal.y < -0.5 ? 0.6 : max(near_floor * 0.7, near_ceiling * 0.4));
 	float contact = mix(1.0, occlusion, junction * ao_strength);
-	float cove = 1.0;
-	float skirting = 1.0;
-	// Office light reads even: walls as bright as the floor, ceiling a bit less.
-	float facing = world_normal.y < -0.5 ? ceiling_level : (world_normal.y > 0.5 ? floor_level : wall_level);
-	EMISSION = color * light_tint * (irradiance * facing * field_strength + ambient_level) * contact * cove * skirting;
-
-	// Direct light of the panels in the 3 × 3 cells around the fragment: a
-	// downward cone gives the pool on the carpet and the arcs on the walls.
-	// The reach (2.5 m horizontally) never exceeds the window, so no panel
-	// enters or leaves abruptly. field.a is the baked share of nearby panels
-	// this point sees, which keeps the light from crossing walls.
-	vec2 cell = floor(world_pos.xz / 2.5);
-	float direct = 0.0;
-	for (int dz = -1; dz <= 1; dz++) {
-		for (int dx = -1; dx <= 1; dx++) {
-			vec2 c = cell + vec2(float(dx), float(dz));
-			vec2 t = (c - fixture_origin + 0.5) / fixture_cells;
-			if (t.x < 0.0 || t.y < 0.0 || t.x > 1.0 || t.y > 1.0) continue;
-			vec4 f = texture(fixture_tex, t);
-			if (f.a < 0.5) continue;
-			vec3 centre = vec3((c.x + f.r) * 2.5, ceiling_height - 0.01, (c.y + f.g) * 2.5);
-			// Fades out 2.1 m from the panel centre: its samples (±0.4 m) stay
-			// inside the 2.5 m guaranteed by the window.
-			float reach = 1.0 - smoothstep(1.3, 2.1, length(centre.xz - world_pos.xz));
-			for (int s = 0; s < 2; s++) {
-				vec3 to_light = centre + vec3(float(s) * 0.8 - 0.4, 0.0, 0.0) - world_pos;
-				float d = length(to_light);
-				vec3 l = to_light / d;
-				float cone = smoothstep(0.05, 0.7, l.y);
-				float ndl = max(dot(world_normal, l), 0.0);
-				direct += f.b * cone * ndl * reach / (1.0 + d * d * 0.35);
-			}
-		}
-	}
-	// Walls only: fluorescent troffers light carpets evenly, round pools on the
-	// floor read as theatre spotlights.
-	EMISSION += color * light_tint * direct * field.a * contact * direct_strength * vertical;
+	// Rough Schlick Fresnel (F0 0.04), energy conserving like the Principled
+	// BSDF: the reflected part is white and takes from the diffuse part. The
+	// reflected light is taken as the incident irradiance (rough surfaces).
+	float cos_v = clamp(dot(normalize(CAMERA_POSITION_WORLD - world_pos), world_normal), 0.0, 1.0);
+	float fresnel = 0.04 + (max(1.0 - roughness, 0.04) - 0.04) * pow(1.0 - cos_v, 5.0);
+	vec3 irradiance = direct * panel_color + bounce;
+	ALBEDO = to_srgb((color * (1.0 - fresnel) + fresnel) * irradiance * contact * light_scale / PI);
+	if (debug_view > 0.5) ALBEDO = debug_view < 1.5 ? vec3(fract(at * 7.0), 0.0) : debug_view < 2.5 ? d0.rgb / e_max : debug_view < 3.5 ? texture(direct0, at).rgb : debug_view < 4.5 ? texture(ao_tex, at).rrr : debug_view < 5.5 ? to_srgb(vec3(0.18)) : debug_view < 6.5 ? to_srgb(color) : debug_view < 7.5 ? vec3(contact) : debug_view < 8.5 ? to_srgb(direct * panel_color / PI) : to_srgb(bounce / PI);
 }

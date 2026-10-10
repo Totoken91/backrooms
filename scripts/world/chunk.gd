@@ -1,7 +1,8 @@
 class_name Chunk
 extends Node3D
 ## One 40 m streaming chunk: meshes, collision and panels built from the shared
-## LevelWorld boxes, plus its 32×32 irradiance field (1.25 m texels).
+## LevelWorld boxes, plus its contact-occlusion map; light is baked on the
+## GPU by LightBaker and stored in `direct` / `bounce`.
 
 const CELL := LevelWorld.CELL
 const CHUNK := LevelWorld.CHUNK
@@ -16,9 +17,12 @@ const LIP := 0.018
 
 var coord: Vector2i
 var fixtures: Array = []
-var field: Image
 var ao: Image
-var field_ready := false
+## Baked light (LightBaker tiles): direct, first gather (one bounce), then
+## second gather (indirect light including the light bounced off the ceiling).
+var direct := []
+var bounce1 := []
+var bounce := []
 var build_ms := 0.0
 var built := false
 var phases := {}
@@ -105,7 +109,9 @@ func setup(world: LevelWorld, p_coord: Vector2i, materials: Dictionary, panel_me
 ## Adds a quad with corners in order around its face; triangles are wound so
 ## that the side facing `normal` is the front face.
 ## Faces are axis-aligned, so tangents follow from the UV mapping of _uv.
-func _quad(key: String, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3) -> void:
+## `shade`: normal stored for lighting when it differs from the face's own
+## (winding and UVs follow `normal`).
+func _quad(key: String, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3, shade := Vector3.ZERO) -> void:
 	var data: Array = _tools[key]
 	var verts: Array = data[0]
 	var normals: Array = data[1]
@@ -123,7 +129,7 @@ func _quad(key: String, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: 
 		w = 1.0
 	for p in order:
 		verts.append(p)
-		normals.append(normal)
+		normals.append(normal if shade == Vector3.ZERO else shade)
 		tangents.append(t.x)
 		tangents.append(t.y)
 		tangents.append(t.z)
@@ -195,10 +201,11 @@ func _emit_box(b) -> void:
 			_quad("skirting", A, E, E + up * 0.16, A + up * 0.16, n)
 			_quad("skirting", A + up * 0.008 + lip, E + up * 0.008 + lip, E + up * 0.115 + lip, A + up * 0.115 + lip, n)
 			_quad("skirting", A + up * 0.115, E + up * 0.115, E + up * 0.115 + lip, A + up * 0.115 + lip, up)
-			# End caps close the skirting at jambs and outside corners.
+			# End caps close the skirting at jambs and outside corners. They are lit
+			# like their wall: lit along the wall's axis they would show as dashes.
 			var along := (E - A).normalized()
-			_quad("skirting", A + up * 0.008, A + up * 0.008 + lip, A + up * 0.115 + lip, A + up * 0.115, -along)
-			_quad("skirting", E + up * 0.008, E + up * 0.008 + lip, E + up * 0.115 + lip, E + up * 0.115, along)
+			_quad("skirting", A + up * 0.008, A + up * 0.008 + lip, A + up * 0.115 + lip, A + up * 0.115, -along, n)
+			_quad("skirting", E + up * 0.008, E + up * 0.008 + lip, E + up * 0.115 + lip, E + up * 0.115, along, n)
 	if b.y0 > 0.0:
 		_quad("wall", Vector3(b.x0, b.y0, b.z0), Vector3(b.x1, b.y0, b.z0), Vector3(b.x1, b.y0, b.z1), Vector3(b.x0, b.y0, b.z1), Vector3.DOWN)
 	if b.y1 < H - 1e-6:
@@ -282,7 +289,7 @@ func _build_panels(panel_mesh: Mesh) -> void:
 	for i in fixtures.size():
 		var f = fixtures[i]
 		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(f.x, H - 0.006, f.z)))
-		mm.set_instance_custom_data(i, Color(0.9, 0, 0, 0))
+		mm.set_instance_custom_data(i, Color(PanelLights.power(0.0, f.seed, true), 0, 0, 0))
 	var node := MultiMeshInstance3D.new()
 	node.name = "Panels"
 	node.multimesh = mm
@@ -296,14 +303,11 @@ func set_panel_power(index: int, power: float) -> void:
 		node.multimesh.set_instance_custom_data(index, Color(power, 0, 0, 0))
 
 
-# --- Irradiance field -------------------------------------------------------
+# --- Contact occlusion ----------------------------------------------------
 
-## Bakes the chunk's field against the physics colliders of the loaded
-## neighbourhood (rays at 1.4 m: lintels are not occluders). Yields to keep
-## each frame's share under `slice_ms`.
 ## Fine contact occlusion, 0.3125 m texels: exact distance to the full-height
 ## wall boxes, summed so inner corners darken more than straight walls.
-func _bake_ao(slice_ms: float) -> void:
+func bake_ao(slice_ms: float) -> void:
 	var slice_start := Time.get_ticks_usec()
 	ao = Image.create(AO_RES, AO_RES, false, Image.FORMAT_L8)
 	var texel := CELL * CHUNK / AO_RES
@@ -332,85 +336,3 @@ func _bake_ao(slice_ms: float) -> void:
 				return
 			slice_start = Time.get_ticks_usec()
 	bake_ms += (Time.get_ticks_usec() - slice_start) / 1000.0
-
-
-func bake_field(space: PhysicsDirectSpaceState3D, nearby: Array, slice_ms: float) -> void:
-	await _bake_ao(slice_ms)
-	if not is_inside_tree():
-		return
-	var started := Time.get_ticks_usec()
-	var slice_start := started
-	field = Image.create(FIELD_RES, FIELD_RES, false, Image.FORMAT_RGBA8)
-	var query := PhysicsRayQueryParameters3D.new()
-	query.collision_mask = 1
-	var texel := CELL * CHUNK / FIELD_RES
-	var bx := coord.x * CHUNK * CELL
-	var bz := coord.y * CHUNK * CELL
-	for iz in FIELD_RES:
-		for ix in FIELD_RES:
-			var wx := bx + (ix + 0.5) * texel
-			var wz := bz + (iz + 0.5) * texel
-			var ao := 1.0
-			var sum := 0.0
-			if _world.point_blocked(wx, wz):
-				var p := _free_point(wx, wz)
-				if p == Vector2.INF:
-					field.set_pixel(ix, iz, Color(0.08, 0.1, 0.53, 1))
-					continue
-				wx = p.x
-				wz = p.y
-			# Contact occlusion from nearby wall boxes (analytic, no rays).
-			for cz in range(floori(wz / CELL) - 1, floori(wz / CELL) + 2):
-				for cx in range(floori(wx / CELL) - 1, floori(wx / CELL) + 2):
-					for b in _world.cell_boxes(cx, cz):
-						if not b.occluder:
-							continue
-						var dx: float = wx - clampf(wx, b.x0, b.x1)
-						var dz: float = wz - clampf(wz, b.z0, b.z1)
-						ao -= 0.16 * exp(-sqrt(dx * dx + dz * dz) * 3.5)
-			var from := Vector3(wx, 1.4, wz)
-			# A: share of the nearby panels (within the shader's 2.5 m direct
-			# reach) that this point actually sees, distance-weighted.
-			var near_all := 0.0
-			var near_seen := 0.0
-			for f in nearby:
-				var d2: float = ((wx - f.x) * (wx - f.x) + (wz - f.z) * (wz - f.z)) / (CELL * CELL)
-				if d2 > 7.0:
-					continue
-				var near_w := 0.0
-				if d2 < 1.6:
-					near_w = 1.0 / (1.0 + d2 * 4.0)
-					near_all += near_w
-				query.from = from
-				query.to = Vector3(f.x, 1.4, f.z)
-				if not space.intersect_ray(query).is_empty():
-					continue
-				near_seen += near_w
-				sum += (0.76 + float(f.seed % 101) / 101.0 * 0.24) * 0.8 * exp(-d2 * 0.75)
-			# Strong saturation keeps the carpet even between panels.
-			var radiance := 1.0 - exp(-sum * 2.4)
-			var bounce := 0.11
-			var visibility := near_seen / near_all if near_all > 0.0 else 1.0
-			field.set_pixel(ix, iz, Color(bounce + radiance * 0.6, minf(1.0, bounce * 1.25 + radiance * 0.72), maxf(0.53, ao), visibility))
-			if Time.get_ticks_usec() - slice_start > slice_ms * 1000.0:
-				bake_ms += (Time.get_ticks_usec() - slice_start) / 1000.0
-				await get_tree().process_frame
-				if not is_inside_tree():
-					return
-				slice_start = Time.get_ticks_usec()
-	bake_ms += (Time.get_ticks_usec() - slice_start) / 1000.0
-	field_ready = true
-
-
-func _free_point(x: float, z: float) -> Vector2:
-	var best := Vector2.INF
-	var distance := 1.7
-	for b in _world.cell_boxes(floori(x / CELL), floori(z / CELL)):
-		if not b.occluder or x <= b.x0 or x >= b.x1 or z <= b.z0 or z >= b.z1:
-			continue
-		for p in [Vector2(b.x0 - 0.02, z), Vector2(b.x1 + 0.02, z), Vector2(x, b.z0 - 0.02), Vector2(x, b.z1 + 0.02)]:
-			var d := Vector2(x, z).distance_to(p)
-			if d < distance and not _world.point_blocked(p.x, p.y):
-				distance = d
-				best = p
-	return best

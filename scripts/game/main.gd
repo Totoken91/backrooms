@@ -32,6 +32,10 @@ func _ready() -> void:
 	_build_environment()
 	_build_ui()
 	lights.streamer = streamer
+	var baker := LightBaker.new()
+	baker.name = "LightBaker"
+	add_child(baker)
+	streamer.baker = baker
 	# Development: isolate each lighting component (lights=0, field=0).
 	if options.get("lights") == "0":
 		lights.energy = 0.0
@@ -46,6 +50,11 @@ func _ready() -> void:
 			else:
 				for m in streamer.materials.values():
 					m.set_shader_parameter(kv[0], value)
+	# Development: raw output (no tonemap, exposure 1, no glow) for measurements.
+	if options.has("raw"):
+		environment.environment.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+		environment.environment.tonemap_exposure = 1.0
+		environment.environment.glow_enabled = false
 	if options.get("field") == "0":
 		for m in streamer.materials.values():
 			m.set_shader_parameter("field_strength", 0.0)
@@ -58,6 +67,10 @@ func _ready() -> void:
 		var a := str(options.at).split(",")
 		world.views["at"] = {"position": Vector3(float(a[0]), 0, float(a[1])), "yaw": float(a[2]), "label": "at"}
 	_update_ui()
+	if options.has("export_scene"):
+		_export_scene(str(options.export_scene))
+		get_tree().quit()
+		return
 	if options.has("shots"):
 		_capture(str(options.shots).split(","), str(options.get("out", "user://")))
 
@@ -76,7 +89,79 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 			waited += 1
 		var path := folder.path_join("godot-s%d-%s%s.png" % [world.seed, n, str(options.get("tag", ""))])
 		get_viewport().get_texture().get_image().save_png(path)
+		if options.has("dump"):
+			for i in streamer.light_images.size():
+				streamer.light_images[i].save_png(folder.path_join("dump-%s-%d.png" % [n, i]))
+			streamer.ao_image.save_png(folder.path_join("dump-%s-ao.png" % n))
+			var c: Chunk = streamer.chunks.get(WorldStreamer.chunk_of(player.global_position))
+			if c:
+				streamer.baker._occupancy(world, c.coord).save_png(folder.path_join("dump-%s-occ.png" % n))
+				var origin := LightBaker.chunk_origin(c.coord)
+				var r := streamer.region_rect()
+				for t in [Vector2i(20, 20), Vector2i(40, 30), Vector2i(80, 80), Vector2i(120, 60), Vector2i(10, 140), Vector2i(150, 10), Vector2i(100, 120)]:
+					var p := origin + (Vector2(t) + Vector2(0.5, 0.5)) * LightBaker.TEXEL
+					var e := 0.0
+					var near := 0
+					for z in range(floori(p.y / 2.5) - 4, floori(p.y / 2.5) + 5):
+						for x in range(floori(p.x / 2.5) - 4, floori(p.x / 2.5) + 5):
+							for f in world.cell_fixtures(x, z):
+								var v := Vector3(f.x - p.x, 2.79 - 0.02, f.z - p.y)
+								var d2 := v.length_squared()
+								var oy := v.y / sqrt(d2)
+								e += PanelLights.power(0, f.seed, true) * streamer.baker.panel_radiance * 0.735 * oy * oy / d2
+								near += 1
+					var px := Vector2i(((p - r.position) / LightBaker.TEXEL).floor())
+					var stored := streamer.light_images[0].get_pixelv(px)
+					var single: Image = c.direct[0]
+					var fl := single.get_pixel(t.x, LightBaker.RES - 1 - t.y)
+					print("texel ", t, " cpu E ", e, " gpu ", single.get_pixelv(t).r ** 2 * 6.0, " flipped ", fl.r ** 2 * 6.0)
+			print("light_rect ", streamer.region_rect(), " baker ms ", streamer.baker.last_ms)
+			var fwd := -player.global_transform.basis.z
+			for dist in [2.0, 4.0, 6.0, 8.0]:
+				var w: Vector3 = player.global_position + fwd * dist
+				var px := Vector2i(((Vector2(w.x, w.z) - streamer.region_rect().position) / LightBaker.TEXEL).floor())
+				var vals := []
+				for i in 9:
+					var col: Color = streamer.light_images[i].get_pixelv(px)
+					var scale := LightBaker.E_MAX if i < 3 else LightBaker.I_MAX
+					vals.append("%.2f/%.2f/%.2f/%.2f" % [col.r * col.r * scale, col.g * col.g * scale, col.b * col.b * scale, col.a * col.a * scale])
+				print("at ", dist, "m ", Vector2(w.x, w.z), " D0 ", vals[0], " D1 ", vals[1], " | B1 floor ", vals[3], " ceil ", vals[4], " wall ", vals[5], " | B2 floor ", vals[6], " ceil ", vals[7], " wall ", vals[8])
+				var e_cpu := 0.0
+				var near := []
+				for z in range(floori(w.z / 2.5) - 4, floori(w.z / 2.5) + 5):
+					for x in range(floori(w.x / 2.5) - 4, floori(w.x / 2.5) + 5):
+						for f in world.cell_fixtures(x, z):
+							var v := Vector3(f.x - w.x, 2.77, f.z - w.z)
+							var d2 := v.length_squared()
+							e_cpu += PanelLights.power(0, f.seed, true) * streamer.baker.panel_radiance * 0.735 * (v.y * v.y / d2) / d2
+							if d2 < 30.0: near.append(Vector2(f.x, f.z))
+				print("   cpu floor E ", e_cpu, " panels <5.5m ", near)
+			if c:
+				var origin := LightBaker.chunk_origin(c.coord)
+				var occ: Image = streamer.baker._occupancy(world, c.coord)
+				var view_img := Image.create(640, 640, false, Image.FORMAT_RGB8)
+				var tile0: Image = c.direct[0]
+				for y in 640:
+					for x in 640:
+						var v := tile0.get_pixel(x / 4, y / 4).r
+						var o := occ.get_pixel(int(LightBaker.MARGIN / LightBaker.OCC_TEXEL) + x / 2, int(LightBaker.MARGIN / LightBaker.OCC_TEXEL) + y / 2).r
+						view_img.set_pixel(x, y, Color(v, v, v + o * 0.6))
+				for z in range(c.coord.y * 16, c.coord.y * 16 + 16):
+					for x in range(c.coord.x * 16, c.coord.x * 16 + 16):
+						for f in world.cell_fixtures(x, z):
+							var q := (Vector2(f.x, f.z) - origin) * 16.0
+							view_img.fill_rect(Rect2i(int(q.x) - 9, int(q.y) - 4, 19, 9), Color(1, 0, 0))
+				view_img.save_png(folder.path_join("dump-%s-floormap.png" % n))
+			streamer.baker._direct.set_shader_parameter("calibrate", true)
+			var cal: Array = await streamer.baker._render(streamer.baker._direct)
+			streamer.baker._direct.set_shader_parameter("calibrate", false)
+			for t in [Vector2i(0, 0), Vector2i(10, 150), Vector2i(150, 10)]:
+				for k in 3:
+					var px: Color = cal[k].get_pixelv(t)
+					print("calib tile ", k, " pixel ", t, " -> local ", Vector2(px.r, px.g) * 160.0, " tile ", px.b * 4.0, " a ", px.a)
 		print("capture ", path, " fps ", Engine.get_frames_per_second(), " bakes ", streamer.pending_bakes(), " build max ", streamer.max_build_ms, " phases ", streamer.chunks.get(Vector2i(0, 0)).phases if streamer.chunks.has(Vector2i(0, 0)) else {}, " chunks ", streamer.chunks.size())
+	if options.has("hold"):
+		await get_tree().create_timer(float(options.hold)).timeout
 	get_tree().quit()
 
 
@@ -194,10 +279,10 @@ func _surface(base: String, extra := {}) -> ShaderMaterial:
 
 func _build_materials() -> void:
 	streamer.materials = {
-		"wall": _surface("wallpaper", {"wall_damp": true, "normal_strength": 0.25, "tint": Color(0.93, 1.0, 1.02)}),
-		"skirting": _surface("skirting", {"normal_strength": 0.3, "roughness_scale": 0.85, "tint": Color(1.25, 1.2, 1.1)}),
-		"floor": _surface("carpet", {"normal_strength": 0.8, "tint": Color(0.86, 0.92, 1.18)}),
-		"ceiling": _surface("ceiling", {"ceiling_grid": true, "normal_strength": 0.4}),
+		"wall": _surface("wallpaper", {"wall_damp": true, "tint": Color(0.95, 1.0, 0.7), "roughness": 0.85}),
+		"skirting": _surface("wallpaper", {"tint": Color(0.95, 1.0, 0.7), "roughness": 0.85}),
+		"floor": _surface("carpet", {"tint": Color(0.84, 0.86, 0.72), "roughness": 0.95}),
+		"ceiling": _surface("ceiling", {"ceiling_grid": true, "tint": Color(1.1, 1.1, 1.05)}),
 	}
 	var panel := ShaderMaterial.new()
 	panel.shader = preload("res://shaders/panel.gdshader")
@@ -242,10 +327,10 @@ func _build_environment() -> void:
 	# AgX desaturates highlights like the reference renders (pale walls near
 	# the panels instead of lemon yellow). Levels calibrated on USER-LUMIERE.
 	env.tonemap_mode = Environment.TONE_MAPPER_AGX
-	env.tonemap_exposure = 1.6
+	env.tonemap_exposure = 1.27
 	env.glow_enabled = true
-	env.glow_intensity = 0.55
-	env.glow_bloom = 0.04
+	env.glow_intensity = 0.2
+	env.glow_bloom = 0.0
 	env.glow_hdr_threshold = 1.0
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	# No fog: Level 0 has no haze; distance is carried by light and geometry.
@@ -394,3 +479,35 @@ func _update_debug() -> void:
 		"lumières %s · draw calls %d" % [lights.stats(), RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)],
 		"position %s · yaw %.2f" % [player.global_position.snapped(Vector3.ONE * 0.01), player.yaw()],
 	])
+
+
+## Development: writes the boxes, panels and QA views around the spawn as
+## JSON, for the Blender ground-truth renders (tools/blender/render_scene.py).
+func _export_scene(path: String) -> void:
+	var boxes := {}
+	var fixtures := {}
+	var s: Vector3 = world.spawn.position
+	var c := Vector2i(floori(s.x / LevelWorld.CELL), floori(s.z / LevelWorld.CELL))
+	for z in range(c.y - 14, c.y + 15):
+		for x in range(c.x - 14, c.x + 15):
+			for b in world.cell_boxes(x, z):
+				boxes[b.id] = [b.x0, b.z0, b.x1, b.z1, b.y0, b.y1]
+			for f in world.cell_fixtures(x, z):
+				fixtures[f.id] = [f.x0, f.z0, f.x1, f.z1, PanelLights.power(0.0, f.seed, true)]
+			if world.cell_kind(x, z) != 1:
+				boxes["floor%d,%d" % [x, z]] = null
+	var floors := []
+	for k in boxes.keys():
+		if boxes[k] == null:
+			var xz: PackedStringArray = k.trim_prefix("floor").split(",")
+			floors.append([int(xz[0]), int(xz[1])])
+			boxes.erase(k)
+	var views := {}
+	for k in world.views:
+		var v: Dictionary = world.views[k]
+		views[k] = [v.position.x, v.position.z, v.yaw]
+	var data := {"cell": LevelWorld.CELL, "height": LevelWorld.HEIGHT, "eye": Player.EYE, "fov": player.camera.fov,
+		"boxes": boxes.values(), "fixtures": fixtures.values(), "floors": floors, "views": views, "seed": world.seed}
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(data))
+	print("scene: %d boxes, %d panels" % [boxes.size(), fixtures.size()])

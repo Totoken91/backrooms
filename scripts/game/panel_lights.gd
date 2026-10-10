@@ -52,6 +52,9 @@ func _ready() -> void:
 
 
 static func power(time: float, seed: int, steady: bool) -> float:
+	# A few dead tubes: the diffuser stays dark and gives no light.
+	if seed % 19 == 0:
+		return 0.02
 	var nominal := 0.76 + float(seed % 101) / 101.0 * 0.24
 	if steady:
 		return nominal

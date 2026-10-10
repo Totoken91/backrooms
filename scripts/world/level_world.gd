@@ -16,6 +16,7 @@ const BODY_HEIGHT := 1.9
 const SITE := Rect2i(2, 2, 7, 7)
 const DIRS := [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]
 const EPS := 1e-6
+const LIGHT_PERIOD := 5.0
 
 
 class Box:
@@ -346,27 +347,61 @@ func cell_boxes(x: int, z: int) -> Array:
 	return _maze_boxes[k]
 
 
-## Classic panels sit on odd/odd open cells; site panels come from C01.
+## Smooth lighting density in [0, 1]: value noise on a 5-cell (12.5 m)
+## lattice, so the maze has well-lit stretches, sparse ones and dark ones.
+func light_density(x: int, z: int) -> float:
+	var fx := float(x) / LIGHT_PERIOD
+	var fz := float(z) / LIGHT_PERIOD
+	var lx := floori(fx)
+	var lz := floori(fz)
+	var tx := fx - lx
+	var tz := fz - lz
+	tx = tx * tx * (3.0 - 2.0 * tx)
+	tz = tz * tz * (3.0 - 2.0 * tz)
+	var v := func(i: int, j: int) -> float: return float(channel("fixtures.density", [i, j]) % 1000) / 999.0
+	return lerpf(lerpf(v.call(lx, lz), v.call(lx + 1, lz), tx), lerpf(v.call(lx, lz + 1), v.call(lx + 1, lz + 1), tx), tz)
+
+
+## Maze panels: irregular, density-driven. A cell keeps a panel with a
+## probability following light_density; the panel takes one of 12 positions
+## on the 0.625 m ceiling grid, away from solid neighbours. Site panels come
+## from C01.
 func cell_fixtures(x: int, z: int) -> Array:
 	var kind := cell_kind(x, z)
 	if kind == 2:
 		return _site_fixture_index.get(Vector2i(x, z), [])
-	if kind != 0 or posmod(x, 2) != 1 or posmod(z, 2) != 1 or hash_cell(x, z, 303) % 7 == 0:
+	if kind != 0:
 		return []
 	var k := Vector2i(x, z)
 	if _maze_fixtures.has(k):
 		return _maze_fixtures[k]
-	var f := Fixture.new()
-	f.id = "f%d,%d" % [x, z]
-	f.x0 = x * CELL + 0.625
-	f.z0 = z * CELL + 1.25
-	f.x1 = x * CELL + 1.875
-	f.z1 = z * CELL + 1.875
-	f.x = (f.x0 + f.x1) * 0.5
-	f.z = (f.z0 + f.z1) * 0.5
-	f.seed = hash_cell(x, z, 1407)
-	_maze_fixtures[k] = [f]
-	return _maze_fixtures[k]
+	var chance := clampf((light_density(x, z) - 0.28) * 1.25, 0.0, 0.7)
+	var result := []
+	if float(channel("fixtures.place", [x, z]) % 1000) / 1000.0 < chance:
+		var slot := channel("fixtures.slot", [x, z]) % 12
+		var ox := (slot % 3) * 0.625
+		var oz := (slot / 3) * 0.625
+		# Keep 0.3 m from walls: slide away from a solid neighbour.
+		if cell_kind(x - 1, z) == 1 and ox < 0.3:
+			ox = 0.625
+		if cell_kind(x + 1, z) == 1 and ox + 1.25 > CELL - 0.3:
+			ox = 0.625
+		if cell_kind(x, z - 1) == 1 and oz < 0.3:
+			oz = 0.625
+		if cell_kind(x, z + 1) == 1 and oz + 0.625 > CELL - 0.3:
+			oz = 1.25
+		var f := Fixture.new()
+		f.id = "f%d,%d" % [x, z]
+		f.x0 = x * CELL + ox
+		f.z0 = z * CELL + oz
+		f.x1 = f.x0 + 1.25
+		f.z1 = f.z0 + 0.625
+		f.x = (f.x0 + f.x1) * 0.5
+		f.z = (f.z0 + f.z1) * 0.5
+		f.seed = channel("fixtures.seed", [x, z])
+		result = [f]
+	_maze_fixtures[k] = result
+	return result
 
 
 func point_blocked(x: float, z: float) -> bool:

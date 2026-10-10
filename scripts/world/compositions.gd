@@ -49,12 +49,19 @@ static func c01(pick: Callable, site_w: int, site_d: int) -> Dictionary:
 	]
 	# Panels replace two ceiling tiles on the world 0.625 m grid. A regular
 	# room grid; panels too close to a wall or bulkhead are omitted.
+	# Irregular on purpose: candidates on a loose room grid, each kept with a
+	# probability and nudged by one ceiling module; the entry corner always
+	# keeps light. Placement follows the references: lit areas and dark gaps.
 	var fixtures := []
 	for zi in 5:
 		for xi in 4:
-			var cx := q(3.75) + xi * q(3.125)
-			var z0 := q(2.5) + zi * q(3.125)
-			fixtures.append({"rect": [cx - step, z0, cx + step, z0 + step], "key": xi + zi * 4})
+			var key := xi + zi * 4
+			var entry := zi >= 3 and xi <= 1
+			if not entry and pick.call("fixtures.keep.%d" % key, 100) >= 55:
+				continue
+			var cx := q(3.75) + xi * q(3.125) + (int(pick.call("fixtures.dx.%d" % key, 3)) - 1) * step
+			var z0 := q(2.5) + zi * q(3.125) + (int(pick.call("fixtures.dz.%d" % key, 3)) - 1) * step
+			fixtures.append({"rect": [cx - step, z0, cx + step, z0 + step], "key": key})
 	var views := {
 		"entry": {"x": q(7.5), "z": q(15.25), "yaw": 0.7, "label": "Entrée : la cloison proche masque la poche nord-ouest"},
 		"reveal": {"x": q(10.625), "z": q(6.25), "yaw": -1.26, "label": "Révélation : la poche et sa sortie apparaissent après le retour de cloison"},

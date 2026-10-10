@@ -56,6 +56,7 @@ function stats(img, [x0, y0, x1, y1]) {
   return { rgb: [r, g, b].map(Math.round), luma: Math.round(luma), sat: +(max ? (max - min) / max : 0).toFixed(2), contrast: Math.round(Math.sqrt(Math.max(0, l2 / n - luma * luma))) };
 }
 
+if (require.main !== module) { module.exports = { decode }; return; }
 const [refFile, capFile, outFile, refZones, capZones] = process.argv.slice(2);
 const parse = s => Object.fromEntries(s.split(';').filter(Boolean).map(z => { const [k, v] = z.split('='); return [k, v.split(',').map(Number)]; }));
 const ref = decode(refFile), cap = decode(capFile), rz = parse(refZones), cz = capZones ? parse(capZones) : rz;
