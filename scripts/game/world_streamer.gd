@@ -4,7 +4,9 @@ extends Node3D
 ## over frames), bakes their light on the GPU (LightBaker: direct, then a first
 ## gather once the neighbours' direct light exists, then a second gather once
 ## their first gather exists), composites the light and contact-occlusion maps
-## of the loaded region, and frees distant chunks.
+## of the loaded chunks into texture arrays (a layer set per chunk slot, the
+## chunk coordinates modulo SLOTS, uploaded alone when that chunk changes),
+## and frees distant chunks.
 
 ## Chunks within RADIUS get the indirect light; geometry and direct light load one
 ## ring further so every bounced chunk sees its neighbours.
@@ -24,28 +26,37 @@ var last_build_ms := 0.0
 var max_build_ms := 0.0
 ## Changes whenever the set of loaded chunks changes.
 var generation := 0
-## Region light maps (LightBaker layout): direct0..3, first gather 0..2, and
-## the displayed indirect light 0..2 (second gather, else first); then AO.
-var light_images: Array[Image] = []
-var light_textures: Array[ImageTexture] = []
-var ao_image: Image
-var ao_texture: ImageTexture
+## Baked light on the GPU (shaders/light_maps.gdshaderinc): MAPS layers per
+## chunk slot (LightBaker layout: 0-3 direct, 4-6 first gather, 7-9 shown
+## indirect light) and one contact-occlusion layer; slot_chunk[slot] is the
+## chunk a slot holds.
+const SLOTS := 7
+const MAPS := 10
+var light_maps := Texture2DArray.new()
+var ao_maps := Texture2DArray.new()
+var slot_chunk := PackedVector2Array()
+var _black: Image
+var _white: Image
 
 var _building: Chunk = null
 var _baking := false
-var _dirty := true
 
 
 func _ready() -> void:
-	var size := SPAN_CHUNKS * LightBaker.RES
-	for i in 10:
-		var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
-		img.fill(Color(0, 0, 0, 1))
-		light_images.append(img)
-		light_textures.append(ImageTexture.create_from_image(img))
-	ao_image = Image.create(SPAN_CHUNKS * Chunk.AO_RES, SPAN_CHUNKS * Chunk.AO_RES, false, Image.FORMAT_L8)
-	ao_image.fill(Color.WHITE)
-	ao_texture = ImageTexture.create_from_image(ao_image)
+	_black = Image.create(LightBaker.RES, LightBaker.RES, false, Image.FORMAT_RGBA8)
+	_black.fill(Color(0, 0, 0, 1))
+	_white = Image.create(Chunk.AO_RES, Chunk.AO_RES, false, Image.FORMAT_L8)
+	_white.fill(Color.WHITE)
+	var layers: Array[Image] = []
+	for i in SLOTS * SLOTS * MAPS:
+		layers.append(_black)
+	light_maps.create_from_images(layers)
+	var ao_layers: Array[Image] = []
+	for i in SLOTS * SLOTS:
+		ao_layers.append(_white)
+	ao_maps.create_from_images(ao_layers)
+	slot_chunk.resize(SLOTS * SLOTS)
+	slot_chunk.fill(Vector2(1e6, 1e6))
 
 
 func reset(p_world: LevelWorld) -> void:
@@ -56,16 +67,61 @@ func reset(p_world: LevelWorld) -> void:
 	_building = null
 	world = p_world
 	center = Vector2i(1 << 30, 0)
-	_dirty = true
+	slot_chunk.fill(Vector2(1e6, 1e6))
+	_bind()
 
 
 static func chunk_of(p: Vector3) -> Vector2i:
 	return Vector2i(floori(p.x / (LevelWorld.CELL * LevelWorld.CHUNK)), floori(p.z / (LevelWorld.CELL * LevelWorld.CHUNK)))
 
 
-func region_rect() -> Rect2:
-	var size := SPAN_CHUNKS * LevelWorld.CHUNK * LevelWorld.CELL
-	return Rect2(LightBaker.chunk_origin(center - Vector2i(LOAD_RADIUS, LOAD_RADIUS)), Vector2(size, size))
+static func slot_of(c: Vector2i) -> int:
+	return posmod(c.x, SLOTS) + posmod(c.y, SLOTS) * SLOTS
+
+
+func _bind() -> void:
+	for m in materials.values():
+		if m is ShaderMaterial:
+			m.set_shader_parameter("light_maps", light_maps)
+			m.set_shader_parameter("ao_maps", ao_maps)
+	if baker:
+		baker.bind_light_maps(light_maps)
+	_publish_slots()
+
+
+func _publish_slots() -> void:
+	for m in materials.values():
+		if m is ShaderMaterial:
+			m.set_shader_parameter("slot_chunk", slot_chunk)
+	if baker:
+		baker.set_slots(slot_chunk)
+
+
+## Uploads a chunk's light into its slot: `what` is "all", "direct",
+## "bounce1" or "bounce". Chunks outside the 7 × 7 region keep no slot.
+func _upload(chunk: Chunk, what := "all") -> void:
+	var k := chunk.coord
+	if absi(k.x - center.x) > LOAD_RADIUS or absi(k.y - center.y) > LOAD_RADIUS:
+		return
+	var slot := slot_of(k)
+	var base := slot * MAPS
+	var owned := slot_chunk[slot] == Vector2(k)
+	if not owned:
+		what = "all"
+	var shown: Array = chunk.bounce if not chunk.bounce.is_empty() else chunk.bounce1
+	if what == "all" or what == "direct":
+		for i in 4:
+			light_maps.update_layer(chunk.direct[i] if i < chunk.direct.size() else _black, base + i)
+		ao_maps.update_layer(chunk.ao if chunk.ao else _white, slot)
+	if what == "all" or what == "bounce1":
+		for i in 3:
+			light_maps.update_layer(chunk.bounce1[i] if i < chunk.bounce1.size() else _black, base + 4 + i)
+	if what != "direct":
+		for i in 3:
+			light_maps.update_layer(shown[i] if i < shown.size() else _black, base + 7 + i)
+	if not owned:
+		slot_chunk[slot] = Vector2(k)
+		_publish_slots()
 
 
 ## Builds the geometry around `p` synchronously (spawn); light follows.
@@ -84,20 +140,22 @@ func settle(p: Vector3, limit := 4000) -> void:
 		if pending_bakes() == 0 and not _baking:
 			break
 		await get_tree().process_frame
-	_composite()
 
 
 func update(p: Vector3) -> void:
 	var c := chunk_of(p)
 	if c != center:
 		center = c
-		_dirty = true
 		for key in chunks.keys():
 			if absi(key.x - c.x) > LOAD_RADIUS + 1 or absi(key.y - c.y) > LOAD_RADIUS + 1:
 				chunks[key].queue_free()
 				chunks.erase(key)
 				generation += 1
 		world.prune(c.x, c.y, LOAD_RADIUS + 2)
+		# Chunks entering the region take their slot.
+		for key in chunks:
+			if chunks[key].built and slot_chunk[slot_of(key)] != Vector2(key):
+				_upload(chunks[key])
 	var missing := Vector2i(1 << 30, 0)
 	var best := INF
 	for dz in range(-LOAD_RADIUS, LOAD_RADIUS + 1):
@@ -110,8 +168,6 @@ func update(p: Vector3) -> void:
 		_build(missing, BUILD_SLICE_MS)
 	if not _baking:
 		_next_bake()
-	if _dirty:
-		_composite()
 
 
 func _build(k: Vector2i, slice_ms := INF) -> void:
@@ -125,6 +181,7 @@ func _build(k: Vector2i, slice_ms := INF) -> void:
 	if not is_instance_valid(chunk) or not chunk.built:
 		return
 	generation += 1
+	_upload(chunk)
 	last_build_ms = chunk.build_ms
 	max_build_ms = maxf(max_build_ms, chunk.build_ms)
 
@@ -175,60 +232,23 @@ func _bake_direct(chunk: Chunk) -> void:
 	if is_instance_valid(chunk):
 		chunk.direct = tiles
 		await chunk.bake_ao(AO_SLICE_MS)
-		_dirty = true
+		if is_instance_valid(chunk):
+			_upload(chunk, "direct")
 	_baking = false
 
 
 func _bake_gather(chunk: Chunk, second: bool) -> void:
 	_baking = true
-	if _dirty:
-		_composite()
-	var tiles: Array = await baker.indirect(world, chunk.coord, light_textures.slice(0, 7), region_rect(), second)
+	var tiles: Array = await baker.indirect(world, chunk.coord, second)
 	if is_instance_valid(chunk):
 		if second:
 			chunk.bounce = tiles
 		else:
 			chunk.bounce1 = tiles
-		_dirty = true
+		_upload(chunk, "bounce" if second else "bounce1")
 	_baking = false
 
 
-func _composite() -> void:
-	_dirty = false
-	var res := LightBaker.RES
-	for img in light_images:
-		img.fill(Color(0, 0, 0, 1))
-	ao_image.fill(Color.WHITE)
-	for dz in range(-LOAD_RADIUS, LOAD_RADIUS + 1):
-		for dx in range(-LOAD_RADIUS, LOAD_RADIUS + 1):
-			var chunk: Chunk = chunks.get(center + Vector2i(dx, dz))
-			if chunk == null:
-				continue
-			var at := Vector2i(dx + LOAD_RADIUS, dz + LOAD_RADIUS)
-			var shown: Array = chunk.bounce if not chunk.bounce.is_empty() else chunk.bounce1
-			for i in chunk.direct.size():
-				light_images[i].blit_rect(chunk.direct[i], Rect2i(0, 0, res, res), at * res)
-			for i in chunk.bounce1.size():
-				light_images[4 + i].blit_rect(chunk.bounce1[i], Rect2i(0, 0, res, res), at * res)
-			for i in shown.size():
-				light_images[7 + i].blit_rect(shown[i], Rect2i(0, 0, res, res), at * res)
-			if chunk.ao:
-				ao_image.blit_rect(chunk.ao, Rect2i(0, 0, Chunk.AO_RES, Chunk.AO_RES), at * Chunk.AO_RES)
-	for i in light_images.size():
-		light_textures[i].update(light_images[i])
-	ao_texture.update(ao_image)
-	var r := region_rect()
-	for m in materials.values():
-		if m is ShaderMaterial:
-			for i in 4:
-				m.set_shader_parameter("direct%d" % i, light_textures[i])
-			for i in 3:
-				m.set_shader_parameter("bounce%d" % i, light_textures[7 + i])
-			m.set_shader_parameter("ao_tex", ao_texture)
-			m.set_shader_parameter("light_rect", Vector4(r.position.x, r.position.y, r.size.x, r.size.y))
-
-
-## Chunks within RADIUS not yet fully lit, counting those not yet built.
 func pending_bakes() -> int:
 	var n := 0
 	for dz in range(-RADIUS, RADIUS + 1):
@@ -253,15 +273,29 @@ func set_fixture_power(_f, _power: float) -> void:
 	pass
 
 
-## Linear irradiance / π on the floor at `p` (direct + indirect), from the
-## composited light maps; black outside the loaded region.
+## The ten map values (sqrt-encoded, LightBaker layout) at p, from the
+## chunk's images; black where not baked.
+func map_values(p: Vector3) -> Array[Color]:
+	var out: Array[Color] = []
+	out.resize(MAPS)
+	out.fill(Color(0, 0, 0, 0))
+	var chunk: Chunk = chunks.get(chunk_of(p))
+	if chunk == null:
+		return out
+	var t := Vector2i(((Vector2(p.x, p.z) - LightBaker.chunk_origin(chunk.coord)) / LightBaker.TEXEL).floor()).clamp(Vector2i.ZERO, Vector2i(LightBaker.RES - 1, LightBaker.RES - 1))
+	var shown: Array = chunk.bounce if not chunk.bounce.is_empty() else chunk.bounce1
+	for i in chunk.direct.size():
+		out[i] = chunk.direct[i].get_pixelv(t)
+	for i in chunk.bounce1.size():
+		out[4 + i] = chunk.bounce1[i].get_pixelv(t)
+	for i in shown.size():
+		out[7 + i] = shown[i].get_pixelv(t)
+	return out
+
+
+## Linear irradiance / π on the floor at p (direct + indirect).
 func light_at(p: Vector3) -> Color:
-	var r := region_rect()
-	var px := Vector2i(((Vector2(p.x, p.z) - r.position) / LightBaker.TEXEL).floor())
-	if light_images.is_empty() or not Rect2i(Vector2i.ZERO, light_images[0].get_size()).has_point(px):
-		return Color.BLACK
-	var d := light_images[0].get_pixelv(px).r
-	var b := light_images[7].get_pixelv(px)
-	var e := d * d * LightBaker.E_MAX
+	var v := map_values(p)
+	var e := v[0].r * v[0].r * LightBaker.E_MAX
 	var k := LightBaker.I_MAX
-	return Color(e + b.r * b.r * k, e * 0.97 + b.g * b.g * k, e * 0.9 + b.b * b.b * k) / PI
+	return Color(e + v[7].r * v[7].r * k, e * 0.97 + v[7].g * v[7].g * k, e * 0.9 + v[7].b * v[7].b * k) / PI

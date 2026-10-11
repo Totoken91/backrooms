@@ -14,15 +14,7 @@ uniform bool ceiling_grid = false;
 // 1 adds a little damp near the floor (wallpaper).
 uniform bool wall_damp = false;
 
-uniform sampler2D direct0 : filter_linear, repeat_disable;
-uniform sampler2D direct1 : filter_linear, repeat_disable;
-uniform sampler2D direct2 : filter_linear, repeat_disable;
-uniform sampler2D direct3 : filter_linear, repeat_disable;
-uniform sampler2D bounce0 : filter_linear, repeat_disable;
-uniform sampler2D bounce1 : filter_linear, repeat_disable;
-uniform sampler2D bounce2 : filter_linear, repeat_disable;
-uniform sampler2D ao_tex : filter_linear, repeat_disable;
-uniform vec4 light_rect = vec4(0.0, 0.0, 280.0, 280.0);
+#include "res://shaders/light_maps.gdshaderinc"
 uniform vec3 panel_color = vec3(1.0, 0.97, 0.9);
 uniform float e_max = 6.0;
 uniform float i_max = 2.0;
@@ -106,18 +98,18 @@ void fragment() {
 		color *= 0.975 + 0.035 * hash(floor(tile));
 		color = mix(color, color * 0.86, seam * 0.6);
 	}
-	vec2 at = (world_pos.xz + world_normal.xz * 0.13 - light_rect.xy) / light_rect.zw;
-	vec4 d0 = texture(direct0, at), d1 = texture(direct1, at), d2 = texture(direct2, at), d3 = texture(direct3, at);
+	vec2 at = world_pos.xz + world_normal.xz * 0.13;
+	vec4 d0 = light_map(0, at), d1 = light_map(1, at), d2 = light_map(2, at), d3 = light_map(3, at);
 	d0 = d0 * d0 * e_max; d1 = d1 * d1 * e_max; d2 = d2 * d2 * e_max; d3 = d3 * d3 * e_max;
 	vec3 direct;
 	vec3 bounce;
 	if (world_normal.y > 0.5) {
 		direct = vec3(d0.x);
-		vec3 b = texture(bounce0, at).rgb;
+		vec3 b = light_map(7, at).rgb;
 		bounce = b * b * i_max;
 	} else if (world_normal.y < -0.5) {
 		direct = vec3(0.0);
-		vec3 b = texture(bounce1, at).rgb;
+		vec3 b = light_map(8, at).rgb;
 		bounce = b * b * i_max;
 	} else {
 		// Walls: irradiance for the facing axis at three heights.
@@ -126,12 +118,12 @@ void fragment() {
 		float h1 = axis == 0 ? d1.y : axis == 1 ? d1.z : axis == 2 ? d1.w : d2.x;
 		float h2 = axis == 0 ? d2.y : axis == 1 ? d2.z : axis == 2 ? d2.w : d3.x;
 		direct = vec3(wall_profile(h0, h1, h2, world_pos.y));
-		vec3 b = texture(bounce2, at).rgb;
+		vec3 b = light_map(9, at).rgb;
 		bounce = b * b * i_max;
 	}
 	// Contact occlusion: full on the floor, fading up the wall from its foot
 	// and down from the ceiling, so corners and junctions darken softly.
-	float occlusion = texture(ao_tex, (world_pos.xz + world_normal.xz * 0.03 - light_rect.xy) / light_rect.zw).r;
+	float occlusion = ao_map(world_pos.xz + world_normal.xz * 0.03);
 	float near_floor = 1.0 - smoothstep(0.0, 0.35, world_pos.y);
 	float near_ceiling = 1.0 - smoothstep(0.0, 0.4, ceiling_height - world_pos.y);
 	// Light at the ceiling: a lit wall brightens the ceiling beside it, so the
@@ -145,5 +137,5 @@ void fragment() {
 	float fresnel = 0.04 + (max(1.0 - roughness, 0.04) - 0.04) * pow(1.0 - cos_v, 5.0);
 	vec3 irradiance = direct * panel_color + bounce;
 	ALBEDO = to_srgb((color * (1.0 - fresnel) + fresnel) * irradiance * contact * light_scale / PI);
-	if (debug_view > 0.5) ALBEDO = debug_view < 1.5 ? vec3(fract(at * 7.0), 0.0) : debug_view < 2.5 ? d0.rgb / e_max : debug_view < 3.5 ? texture(direct0, at).rgb : debug_view < 4.5 ? texture(ao_tex, at).rrr : debug_view < 5.5 ? to_srgb(vec3(0.18)) : debug_view < 6.5 ? to_srgb(color) : debug_view < 7.5 ? vec3(contact) : debug_view < 8.5 ? to_srgb(direct * panel_color / PI) : to_srgb(bounce / PI);
+	if (debug_view > 0.5) ALBEDO = debug_view < 1.5 ? vec3(fract(at / 40.0), 0.0) : debug_view < 2.5 ? d0.rgb / e_max : debug_view < 3.5 ? light_map(0, at).rgb : debug_view < 4.5 ? vec3(ao_map(at)) : debug_view < 5.5 ? to_srgb(vec3(0.18)) : debug_view < 6.5 ? to_srgb(color) : debug_view < 7.5 ? vec3(contact) : debug_view < 8.5 ? to_srgb(direct * panel_color / PI) : to_srgb(bounce / PI);
 }

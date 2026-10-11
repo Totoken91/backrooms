@@ -129,93 +129,34 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 		var path := folder.path_join("godot-s%d-%s%s.png" % [world.seed, n, str(options.get("tag", ""))])
 		get_viewport().get_texture().get_image().save_png(path)
 		if options.has("dump"):
-			for i in streamer.light_images.size():
-				streamer.light_images[i].save_png(folder.path_join("dump-%s-%d.png" % [n, i]))
-			streamer.ao_image.save_png(folder.path_join("dump-%s-ao.png" % n))
-			var c: Chunk = streamer.chunks.get(WorldStreamer.chunk_of(player.global_position))
-			if c:
-				streamer.baker.spans(world, c.coord).a.save_png(folder.path_join("dump-%s-spans.png" % n))
-				var origin := LightBaker.chunk_origin(c.coord)
-				var r := streamer.region_rect()
-				for t in [Vector2i(20, 20), Vector2i(40, 30), Vector2i(80, 80), Vector2i(120, 60), Vector2i(10, 140), Vector2i(150, 10), Vector2i(100, 120)]:
-					var p := origin + (Vector2(t) + Vector2(0.5, 0.5)) * LightBaker.TEXEL
-					var e := 0.0
-					var near := 0
-					for z in range(floori(p.y / 2.5) - 4, floori(p.y / 2.5) + 5):
-						for x in range(floori(p.x / 2.5) - 4, floori(p.x / 2.5) + 5):
-							for f in world.cell_fixtures(x, z):
-								var v := Vector3(f.x - p.x, 2.79 - 0.02, f.z - p.y)
-								var d2 := v.length_squared()
-								var oy := v.y / sqrt(d2)
-								e += PanelLights.power(0, f.seed, true) * streamer.baker.panel_radiance * 0.735 * oy * oy / d2
-								near += 1
-					var px := Vector2i(((p - r.position) / LightBaker.TEXEL).floor())
-					var stored := streamer.light_images[0].get_pixelv(px)
-					var single: Image = c.direct[0]
-					var fl := single.get_pixel(t.x, LightBaker.RES - 1 - t.y)
-					print("texel ", t, " cpu E ", e, " gpu ", single.get_pixelv(t).r ** 2 * 6.0, " flipped ", fl.r ** 2 * 6.0)
-			print("light_rect ", streamer.region_rect(), " baker ms ", streamer.baker.last_ms)
-			var pp := player.global_position
-			var cc := WorldStreamer.chunk_of(pp)
-			var span_map := streamer.baker.spans(world, cc)
-			var cbx := []
-			for b in world.cell_boxes(floori(pp.x / 2.5), floori(pp.z / 2.5)):
-				cbx.append([b.id, b.x0, b.z0, b.x1, b.z1, b.occluder])
-			var kinds := []
-			for dz in range(-2, 3):
-				var row := ""
-				for dx in range(-2, 3):
-					row += str(world.cell_kind(floori(pp.x / 2.5) + dx, floori(pp.z / 2.5) + dz))
-				kinds.append(row)
-			print("kinds ", kinds)
-			print("player ", pp, " chunk ", cc, " blocked ", world.point_blocked(pp.x, pp.z), " occ ", span_map.solid(pp.x, 0.05, pp.z), " cell boxes ", cbx)
-			var fwd := -player.global_transform.basis.z
-			for dist in [2.0, 4.0, 6.0, 8.0]:
-				var w: Vector3 = player.global_position + fwd * dist
-				var px := Vector2i(((Vector2(w.x, w.z) - streamer.region_rect().position) / LightBaker.TEXEL).floor())
-				var vals := []
-				for i in 10:
-					var col: Color = streamer.light_images[i].get_pixelv(px)
-					var scale := LightBaker.E_MAX if i < 4 else LightBaker.I_MAX
-					vals.append("%.2f/%.2f/%.2f/%.2f" % [col.r * col.r * scale, col.g * col.g * scale, col.b * col.b * scale, col.a * col.a * scale])
-				print("at ", dist, "m ", Vector2(w.x, w.z), " D0 ", vals[0], " D1 ", vals[1], " | B1 floor ", vals[4], " ceil ", vals[5], " wall ", vals[6], " | B2 floor ", vals[7], " ceil ", vals[8], " wall ", vals[9])
-				var e_cpu := 0.0
-				var near := []
-				for z in range(floori(w.z / 2.5) - 4, floori(w.z / 2.5) + 5):
-					for x in range(floori(w.x / 2.5) - 4, floori(w.x / 2.5) + 5):
-						for f in world.cell_fixtures(x, z):
-							var v := Vector3(f.x - w.x, 2.77, f.z - w.z)
-							var d2 := v.length_squared()
-							e_cpu += PanelLights.power(0, f.seed, true) * streamer.baker.panel_radiance * 0.735 * (v.y * v.y / d2) / d2
-							if d2 < 30.0: near.append(Vector2(f.x, f.z))
-				print("   cpu floor E ", e_cpu, " panels <5.5m ", near)
-			if c:
-				var origin := LightBaker.chunk_origin(c.coord)
-				var chunk_spans := streamer.baker.spans(world, c.coord)
-				var view_img := Image.create(640, 640, false, Image.FORMAT_RGB8)
-				var tile0: Image = c.direct[0]
-				for y in 640:
-					for x in 640:
-						var v := tile0.get_pixel(x / 4, y / 4).r
-						var o := 1.0 if chunk_spans.solid(origin.x + x / 16.0, 0.05, origin.y + y / 16.0) else 0.0
-						view_img.set_pixel(x, y, Color(v, v, v + o * 0.6))
-				for z in range(c.coord.y * 16, c.coord.y * 16 + 16):
-					for x in range(c.coord.x * 16, c.coord.x * 16 + 16):
-						for f in world.cell_fixtures(x, z):
-							var q := (Vector2(f.x, f.z) - origin) * 16.0
-							view_img.fill_rect(Rect2i(int(q.x) - 9, int(q.y) - 4, 19, 9), Color(1, 0, 0))
-				view_img.save_png(folder.path_join("dump-%s-floormap.png" % n))
-			streamer.baker._direct.set_shader_parameter("calibrate", true)
-			var cal: Array = await streamer.baker._render(streamer.baker._direct)
-			streamer.baker._direct.set_shader_parameter("calibrate", false)
-			for t in [Vector2i(0, 0), Vector2i(10, 150), Vector2i(150, 10)]:
-				for k in 3:
-					var px: Color = cal[k].get_pixelv(t)
-					print("calib tile ", k, " pixel ", t, " -> local ", Vector2(px.r, px.g) * 160.0, " tile ", px.b * 4.0, " a ", px.a)
+			_dump(folder, n)
 		print("capture ", path, " fps ", Engine.get_frames_per_second(), " bakes ", streamer.pending_bakes(), " build max ", streamer.max_build_ms, " phases ", streamer.chunks.get(Vector2i(0, 0)).phases if streamer.chunks.has(Vector2i(0, 0)) else {}, " chunks ", streamer.chunks.size())
 	if options.has("hold"):
 		await get_tree().create_timer(float(options.hold)).timeout
 	get_tree().quit()
+
+
+## Development (dump): the light maps of the player's chunk as PNG, and the
+## decoded light at a few points ahead.
+func _dump(folder: String, n: String) -> void:
+	var p := player.global_position
+	var chunk: Chunk = streamer.chunks.get(WorldStreamer.chunk_of(p))
+	if chunk == null:
+		return
+	for i in chunk.direct.size():
+		chunk.direct[i].save_png(folder.path_join("dump-%s-direct%d.png" % [n, i]))
+	for i in chunk.bounce.size():
+		chunk.bounce[i].save_png(folder.path_join("dump-%s-bounce%d.png" % [n, i]))
+	if chunk.ao:
+		chunk.ao.save_png(folder.path_join("dump-%s-ao.png" % n))
+	var spans := streamer.baker.spans(world, chunk.coord)
+	print("player ", p, " chunk ", chunk.coord, " solid at floor ", spans.solid(p.x, 0.05, p.z), " span overflow ", spans.overflow)
+	var fwd := -player.global_transform.basis.z
+	for dist in [2.0, 4.0, 6.0, 8.0]:
+		var w: Vector3 = p + fwd * dist
+		var v := streamer.map_values(w)
+		var e := func(c: Color, k: float) -> String: return "%.2f/%.2f/%.2f/%.2f" % [c.r * c.r * k, c.g * c.g * k, c.b * c.b * k, c.a * c.a * k]
+		print("at %.0fm " % dist, Vector2(w.x, w.z), " direct ", e.call(v[0], LightBaker.E_MAX), " | indirect floor ", e.call(v[7], LightBaker.I_MAX), " ceiling ", e.call(v[8], LightBaker.I_MAX), " walls ", e.call(v[9], LightBaker.I_MAX))
 
 
 # --- Options --------------------------------------------------------------

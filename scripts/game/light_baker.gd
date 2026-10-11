@@ -121,9 +121,8 @@ func _draw(m: ShaderMaterial, bands := 1) -> Image:
 		_rect.size.y = rows
 		m.set_shader_parameter("band_y0", float(k * rows))
 		m.set_shader_parameter("band_rows", float(rows))
-		# Changes reach the canvas one frame late: draw twice, keep the second.
-		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
-		await RenderingServer.frame_post_draw
+		# One draw per band (verified: the material and uniforms set above reach
+		# this draw; no stale band).
 		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 		await RenderingServer.frame_post_draw
 	var img := _viewport.get_texture().get_image()
@@ -151,18 +150,20 @@ func direct(world: LevelWorld, coord: Vector2i) -> Array:
 	return await _render(_direct, 1)
 
 
-## Gather pass. `maps` are the 4 direct then the 3 first-gather textures of
-## the streamed region whose origin (world metres) and size are given by
-## `region`; `second` makes hits carry the first gather too (two bounces).
-func indirect(world: LevelWorld, coord: Vector2i, maps: Array, region: Rect2, second: bool) -> Array:
-	var origin := chunk_origin(coord)
+func bind_light_maps(maps: Texture2DArray) -> void:
+	_indirect.set_shader_parameter("light_maps", maps)
+
+
+func set_slots(slots: PackedVector2Array) -> void:
+	_indirect.set_shader_parameter("slot_chunk", slots)
+
+
+## Gather pass over the chunk, reading the streamed light maps bound with
+## bind_light_maps; `second` makes hits carry the first gather too.
+func indirect(world: LevelWorld, coord: Vector2i, second: bool) -> Array:
 	_set_spans(_indirect, spans(world, coord))
-	for i in 4:
-		_indirect.set_shader_parameter("direct%d" % i, maps[i])
-	for i in 3:
-		_indirect.set_shader_parameter("bounce%d" % i, maps[4 + i])
+	_indirect.set_shader_parameter("bake_origin", chunk_origin(coord))
 	_indirect.set_shader_parameter("use_bounce", higher_bounces if second else 0.0)
-	_indirect.set_shader_parameter("region", Vector4(region.position.x - origin.x, region.position.y - origin.y, region.size.x, region.size.y))
 	_indirect.set_shader_parameter("wall_albedo", albedo.wall)
 	_indirect.set_shader_parameter("floor_albedo", albedo.floor)
 	_indirect.set_shader_parameter("ceiling_albedo", albedo.ceiling)

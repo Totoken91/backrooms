@@ -16,17 +16,11 @@ render_mode blend_disabled;
 
 #include "res://shaders/spans.gdshaderinc"
 
-uniform sampler2D direct0 : filter_linear, repeat_disable;
-uniform sampler2D direct1 : filter_linear, repeat_disable;
-uniform sampler2D direct2 : filter_linear, repeat_disable;
-uniform sampler2D direct3 : filter_linear, repeat_disable;
-uniform sampler2D bounce0 : filter_linear, repeat_disable;
-uniform sampler2D bounce1 : filter_linear, repeat_disable;
-uniform sampler2D bounce2 : filter_linear, repeat_disable;
+#include "res://shaders/light_maps.gdshaderinc"
 // 0 on the first gather; on the second, the factor on the first gather seen
 // on hit surfaces standing for all their indirect light (≈ 1 / (1 - albedo)).
 uniform float use_bounce = 0.0;
-uniform vec4 region;            // direct maps: origin (relative to chunk), size (m)
+uniform vec2 bake_origin;       // world position of the baked chunk's corner
 uniform vec3 wall_albedo = vec3(0.7, 0.6, 0.3);
 uniform vec3 floor_albedo = vec3(0.5, 0.45, 0.3);
 uniform vec3 ceiling_albedo = vec3(0.75, 0.73, 0.65);
@@ -54,14 +48,15 @@ vec2 free_point(vec2 p) {
 }
 
 
-vec4 dmap(sampler2D m, vec2 p) {
-	vec4 v = texture(m, (p - region.xy) / region.zw);
+// Direct map `map` (0-3) at p, relative to the baked chunk.
+vec4 dmap(int map, vec2 p) {
+	vec4 v = light_map(map, bake_origin + p);
 	return v * v * e_max;
 }
 
-// First-gather irradiance (rgb) at p.
-vec3 bmap(sampler2D m, vec2 p) {
-	vec3 v = texture(m, (p - region.xy) / region.zw).rgb;
+// First-gather map `map` (4-6): irradiance (rgb) at p, relative to the chunk.
+vec3 bmap(int map, vec2 p) {
+	vec3 v = light_map(map, bake_origin + p).rgb;
 	return v * v * i_max * use_bounce;
 }
 
@@ -80,7 +75,7 @@ float wall_profile(float e0, float e1, float e2, float y) {
 }
 
 float wall_direct(vec2 p, int axis, float y) {
-	vec4 a = dmap(direct0, p), b = dmap(direct1, p), c = dmap(direct2, p), d = dmap(direct3, p);
+	vec4 a = dmap(0, p), b = dmap(1, p), c = dmap(2, p), d = dmap(3, p);
 	float h0 = axis == 0 ? a.y : axis == 1 ? a.z : axis == 2 ? a.w : b.x;
 	float h1 = axis == 0 ? b.y : axis == 1 ? b.z : axis == 2 ? b.w : c.x;
 	float h2 = axis == 0 ? c.y : axis == 1 ? c.z : axis == 2 ? c.w : d.x;
@@ -162,7 +157,7 @@ void fragment() {
 						vec2 wall_at = floor((qm - occ_origin) / occ_texel);
 						vec2 front = occ_origin + (wall_at + 0.5) * occ_texel;
 						front = mix(front, prev_mid, abs(face.yx)) + face * (0.0625 + 0.2);
-						radiance = wall_albedo * (wall_direct(front, axis, clamp(ya, 0.0, ceiling)) + bmap(bounce2, front)) / PI;
+						radiance = wall_albedo * (wall_direct(front, axis, clamp(ya, 0.0, ceiling)) + bmap(6, front)) / PI;
 						break;
 					}
 					// Horizontal faces crossed within the step: the first one met.
@@ -178,12 +173,12 @@ void fragment() {
 						if (dir.y < 0.0) {
 							// Floor, or the top of a slab (seen with the floor's light).
 							vec3 alb = face_y < 0.1 ? floor_albedo : wall_albedo;
-							radiance = alb * (dmap(direct0, q).x + bmap(bounce0, q)) / PI;
+							radiance = alb * (dmap(0, q).x + bmap(4, q)) / PI;
 						} else {
 							// Ceiling (no direct light: the panels face down), or the
 							// underside of a lintel, lit from below like the ceiling.
 							vec3 alb = face_y > ceiling - 0.1 ? ceiling_albedo : wall_albedo;
-							radiance = alb * bmap(bounce1, q) / PI;
+							radiance = alb * bmap(5, q) / PI;
 						}
 						break;
 					}
