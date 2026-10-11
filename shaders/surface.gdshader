@@ -53,6 +53,7 @@ float noise(vec2 p) {
 }
 
 #include "res://shaders/color_space.gdshaderinc"
+#include "res://shaders/flashlight.gdshaderinc"
 
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -137,7 +138,7 @@ void fragment() {
 	// reflected light is taken as the incident irradiance (rough surfaces).
 	float cos_v = clamp(dot(normalize(CAMERA_POSITION_WORLD - world_pos), world_normal), 0.0, 1.0);
 	float fresnel = 0.04 + (max(1.0 - roughness, 0.04) - 0.04) * pow(1.0 - cos_v, 5.0);
-	vec3 irradiance = direct * panel_color + bounce;
+	vec3 irradiance = direct * panel_color + bounce + flashlight_irradiance(world_pos, world_normal);
 	ALBEDO = compatibility_albedo((color * (1.0 - fresnel) + fresnel) * irradiance * contact * light_scale / PI);
 	if (debug_view > 0.5) ALBEDO = debug_view < 1.5 ? vec3(fract(at / 40.0), 0.0) : debug_view < 2.5 ? d0.rgb / e_max : debug_view < 3.5 ? light_map(0, at).rgb : debug_view < 4.5 ? vec3(ao_map(at)) : debug_view < 5.5 ? compatibility_albedo(vec3(0.18)) : debug_view < 6.5 ? compatibility_albedo(color) : debug_view < 7.5 ? vec3(contact) : debug_view < 8.5 ? compatibility_albedo(direct * panel_color / PI) : debug_view < 9.5 ? compatibility_albedo(bounce / PI) : compatibility_albedo(first_bounce / PI);
 }

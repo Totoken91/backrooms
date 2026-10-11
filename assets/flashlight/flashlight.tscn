@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="flashlight.glb" id="1"]
+[ext_resource type="Script" path="flashlight.gd" id="2"]
+
+[node name="FlashlightRig" type="Node3D"]
+position = Vector3(0.16, -0.16, -0.18)
+script = ExtResource("2")
+
+[node name="Model" parent="." instance=ExtResource("1")]
+
+[node name="Beam" type="Marker3D" parent="."]
+position = Vector3(0, 0, -0.237)

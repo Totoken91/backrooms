@@ -1,5 +1,16 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**P03 et lampe v3 intégrés :** [architecture et validation](docs/FLASHLIGHT_AND_P03_2026-10-11.md).
+Départ P03 : modules de tailles différentes, trois graphes et une alcôve basse
+en impasse (cinq modules bornés). Lampe sous la caméra, F, éteinte par défaut ;
+faisceau et ombres GPU raccordés au shader personnalisé, modèle lié à Player.light.
+Dix suites natives passent ; P03 contrôlé sur 66 graines / 55 variantes.
+Web local rendu/performance validés ; F vérifié en natif (pointer lock Chromium
+refusé dans le navigateur automatisé, test F Web non concluant).
+Sources du pack conservées sous `.gdignore`, provenance runtime documentée.
+Bloom conservé. Suite : réservations/métadonnées distribuées dans le streaming.
+Aucun push ni déploiement.
+
 **P02 : premier assemblage par graine :** [familles, contrats et validation](docs/P02_ASSEMBLY_2026-10-11.md).
 Nouveau départ : quatre familles indépendantes (enfilade, piliers, retour,
 vide), mélangées dans quatre slots et reliées en boucle. Entrée basse et trois

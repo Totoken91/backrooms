@@ -39,7 +39,25 @@ static func make(family: String, variant: int) -> Dictionary:
 			_: at = Vector2i(WIDTH, 30)
 		ports[side] = {"at": at, "side": side, "width": HALF_OPENING * 2, "floor": 0.0, "ceiling": height, "clearance": 1.9}
 	return {"family": family, "variant": variant, "free": free, "solid": solid,
-		"height": height, "ports": ports, "view": view}
+		"height": height, "width": WIDTH, "depth": DEPTH, "ports": ports, "view": view}
+
+## Preserve a 1.25 m perimeter and the 1.75 m connection contract while
+## resizing the interior. Roof boundaries remain whole 2.5 m cells.
+static func make_sized(family: String, variant: int, width: int, depth: int) -> Dictionary:
+	var m := make(family, variant)
+	var remap := func(value: int, original: int, target: int) -> int:
+		return roundi(10.0 + (value - 10.0) * (target - 20.0) / (original - 20.0))
+	for list in [m.free, m.solid]:
+		for item in list:
+			var r: Array = item.rect
+			item.rect = [remap.call(r[0], WIDTH, width), remap.call(r[1], DEPTH, depth), remap.call(r[2], WIDTH, width), remap.call(r[3], DEPTH, depth)]
+	m.view.x = remap.call(m.view.x, WIDTH, width)
+	m.view.z = remap.call(m.view.z, DEPTH, depth)
+	m.width = width
+	m.depth = depth
+	m.ports.east.at.x = width
+	m.ports.south.at.y = depth
+	return m
 
 static func open_port(module: Dictionary, side: String) -> Dictionary:
 	var p: Dictionary = module.ports[side]
@@ -47,7 +65,7 @@ static func open_port(module: Dictionary, side: String) -> Dictionary:
 	var r: Array
 	match side:
 		"north": r = [at.x - HALF_OPENING, 0, at.x + HALF_OPENING, 10]
-		"south": r = [at.x - HALF_OPENING, 70, at.x + HALF_OPENING, DEPTH]
+		"south": r = [at.x - HALF_OPENING, module.depth - 10, at.x + HALF_OPENING, module.depth]
 		"west": r = [0, at.y - HALF_OPENING, 10, at.y + HALF_OPENING]
-		_: r = [90, at.y - HALF_OPENING, WIDTH, at.y + HALF_OPENING]
+		_: r = [module.width - 10, at.y - HALF_OPENING, module.width, at.y + HALF_OPENING]
 	return {"rect": r}

@@ -26,6 +26,7 @@ var _frame_times := PackedFloat32Array()
 var _bake_frame_times: Array[float] = []
 var _profile_frame_stamp := 0
 var _session := 0.0
+var flashlight_projector: FlashlightProjector
 ## Light view (F7): normal, direct only, indirect only, albedo.
 var _light_view := 0
 const LIGHT_VIEWS := [[0.0, "normale"], [8.0, "directe seule"], [9.0, "indirecte seule"], [6.0, "albédo"]]
@@ -46,6 +47,8 @@ func _ready() -> void:
 	var baker := LightBaker.new()
 	baker.name = "LightBaker"
 	add_child(baker)
+	flashlight_projector = FlashlightProjector.new()
+	add_child(flashlight_projector)
 	# Diagnostic only: longer source reach, within the existing span margin.
 	if options.has("direct_reach"):
 		baker.direct_reach = clampf(float(options.direct_reach), 1.0, 9.5)
@@ -139,6 +142,8 @@ func _ready() -> void:
 		_export_scene(str(options.export_scene))
 		get_tree().quit()
 		return
+	if options.has("bench_flashlight") and not options.has("shots"):
+		_bench_when_ready()
 	if options.has("shots"):
 		_capture(str(options.shots).split(","), str(options.get("out", "user://")))
 
@@ -225,6 +230,10 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 			printerr("FAIL: unfinished light bake for capture: ", n)
 			get_tree().quit(1)
 			return
+		# Wait for the independent flashlight map as well as the panel bake.
+		while player.flashlight.enabled and flashlight_projector.preparing:
+			await get_tree().process_frame
+		for frame in 3: await get_tree().process_frame
 		var path := folder.path_join("godot-s%d-%s%s.png" % [world.seed, n, str(options.get("tag", ""))])
 		get_viewport().get_texture().get_image().save_png(path)
 		# Compare material and lighting at precisely the same camera/bake.
@@ -257,6 +266,8 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 					data.frame_ms["over_%.1f_pct" % threshold] = 100.0 * count / frames.size()
 			var f := FileAccess.open(path.get_basename() + "-profile.json", FileAccess.WRITE)
 			f.store_string(JSON.stringify(data, "\t"))
+	if options.has("bench_flashlight"):
+		await _benchmark_flashlight(folder)
 	if options.has("hold"):
 		await get_tree().create_timer(float(options.hold)).timeout
 	# Stop scheduling outer-ring jobs, then let the current coroutine finish.
@@ -270,6 +281,52 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 		get_tree().quit(1)
 		return
 	get_tree().quit()
+
+
+func _bench_when_ready() -> void:
+	while streamer.pending_bakes() > 0 or streamer._baking:
+		await get_tree().process_frame
+	await _benchmark_flashlight()
+
+## Settled ABBA comparison on the same view and scripted camera path. Frame
+## pacing includes the complete renderer; not a GPU timestamp or mouse benchmark.
+func _benchmark_flashlight(folder := "") -> void:
+	set_process(false)
+	player.active = false
+	while streamer._baking: await get_tree().process_frame
+	var saved_rotation := player.head.rotation
+	var saved_enabled: bool = player.flashlight.enabled
+	var saved_visible: bool = player.flashlight.visible
+	player.flashlight.visible = true
+	player.flashlight.enabled = true
+	for frame in 90: await get_tree().process_frame
+	while flashlight_projector.preparing: await get_tree().process_frame
+	var results := []
+	for enabled in [false, true, true, false]:
+		player.flashlight.enabled = enabled
+		var times: Array[float] = []
+		var updates := flashlight_projector.shadow_updates
+		for frame in 210:
+			player.head.rotation = saved_rotation + Vector3(0.025 * sin(frame * 0.04), 0.08 * sin(frame * 0.03), 0.0)
+			var stamp := Time.get_ticks_usec()
+			await get_tree().process_frame
+			if frame >= 30: times.append((Time.get_ticks_usec() - stamp) / 1000.0)
+		times.sort()
+		results.append({"enabled": enabled,"p50_ms":times[90],"p95_ms":times[171],"max_ms":times.back(),"shadow_updates":flashlight_projector.shadow_updates-updates,"draw_calls":Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),"primitives":Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)})
+	player.head.rotation = saved_rotation
+	player.flashlight.enabled = true
+	for frame in 4: await get_tree().process_frame
+	var idle_start := flashlight_projector.shadow_updates
+	for frame in 30: await get_tree().process_frame
+	var report := {"seed":world.seed,"composition":world.composition,"resolution":get_viewport().size,"shadow_resolution":FlashlightProjector.RES,"blocks":results,"idle_shadow_updates":flashlight_projector.shadow_updates-idle_start,"note":"Settled ABBA, same model and scripted camera path, frame pacing incl renderer; not GPU timestamps or real mouse input"}
+	print("FLASHLIGHT_BENCH ",JSON.stringify(report))
+	if not folder.is_empty():
+		var file := FileAccess.open(folder.path_join("flashlight-bench-seed%d.json" % world.seed),FileAccess.WRITE)
+		file.store_string(JSON.stringify(report,"\t"))
+	player.flashlight.enabled = saved_enabled
+	player.flashlight.visible = saved_visible
+	player.active = started and not paused
+	set_process(true)
 
 
 ## Development (dump): the light maps of the player's chunk as PNG, and the
@@ -319,8 +376,10 @@ func _read_options() -> Dictionary:
 
 func new_exploration(seed := -1) -> void:
 	var value := seed if seed >= 0 else LevelWorld.fresh_seed(world.seed if world else -1)
-	world = LevelWorld.new(value, str(options.get("composition", "P02")))
+	world = LevelWorld.new(value, str(options.get("composition", "P03")))
 	world.geo_test = options.has("geotest")
+	player.flashlight.enabled = options.get("flashlight", "0") == "1"
+	flashlight_projector.configure(world, player, streamer.materials)
 	lights.world = world
 	# Finite composition metadata for the surface shader; outside this site the
 	# classic ceiling is unchanged. Bake metadata comes from the same queries.
@@ -353,6 +412,7 @@ func view(name: String) -> bool:
 
 
 func _process(delta: float) -> void:
+	player.flashlight.visible = started and options.get("viewmodel", "1") != "0"
 	var running := started and not paused
 	player.active = running
 	streamer.update(player.global_position)
@@ -378,6 +438,8 @@ func _process(delta: float) -> void:
 	if _frame_times.size() > 240:
 		_frame_times.remove_at(0)
 	_ui.skate.visible = player.skating and not debug
+	_ui.lamp.visible = started and not paused and not debug and not _capturing
+	_ui.lamp.text = "F · éteindre la lampe" if player.flashlight.enabled else "F · allumer la lampe"
 	if debug:
 		_ui.graph.push(delta * 1000.0)
 		_update_debug()
@@ -564,7 +626,7 @@ func _build_ui() -> void:
 	var go := _button("Explorer", true)
 	go.pressed.connect(start)
 	tv.add_child(go)
-	tv.add_child(_label("ZQSD / WASD · Souris · Maj pour sprinter · K skate · F3 debug · Échap pour la pause", 11, Color(0.73, 0.72, 0.65)))
+	tv.add_child(_label("ZQSD / WASD · Souris · Maj pour sprinter · F lampe · K skate · F3 debug · Échap pour la pause", 11, Color(0.73, 0.72, 0.65)))
 	var build := _label("ÉTUDE %s · NOUVELLE GRAINE À CHAQUE LANCEMENT" % BUILD, 9, Color(0.64, 0.62, 0.55))
 	tv.add_child(build)
 	layer.add_child(title)
@@ -644,6 +706,14 @@ func _build_ui() -> void:
 	skate.visible = false
 	layer.add_child(skate)
 	_ui.skate = skate
+	var lamp := _label("F · allumer la lampe", 11, Color(0.94,0.92,0.82))
+	lamp.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	lamp.position = Vector2(-180,-30)
+	lamp.add_theme_color_override("font_outline_color",Color.BLACK)
+	lamp.add_theme_constant_override("outline_size",3)
+	lamp.visible = false
+	layer.add_child(lamp)
+	_ui.lamp = lamp
 
 
 func _update_ui() -> void:
@@ -677,6 +747,7 @@ func _update_debug() -> void:
 		"position x %.2f  y %.2f  z %.2f · cellule (%d, %d) · chunk %s" % [p.x, p.y, p.z, cell.x, cell.y, WorldStreamer.chunk_of(p)],
 		"cap %.0f° %s · tangage %.0f°" % [yaw_deg, heading, rad_to_deg(player.pitch())],
 		"%s · %.1f m/s (%.0f km/h) · parcouru %.0f m · session %d:%02d" % [mode, player.speed, player.speed * 3.6, player.walked, int(_session) / 60, int(_session) % 60],
+		"lampe F : %s · carte ombre %d² · mises à jour %d" % ["allumée" if player.flashlight.enabled else "éteinte", FlashlightProjector.RES, flashlight_projector.shadow_updates],
 		"zone %s · densité néons %.2f · néons dans la cellule %d" % [zone, world.light_density(cell.x, cell.y), world.cell_fixtures(cell.x, cell.y).size()],
 		"lumière au sol E/π %.3f (r %.3f g %.3f b %.3f) · vue %s" % [(light.r + light.g + light.b) / 3.0, light.r, light.g, light.b, LIGHT_VIEWS[_light_view][1]],
 		"clignotement groupes %.2f / %.2f / %.2f · néons éteints %d · zones à recalculer %d" % [lights.group_power.x, lights.group_power.y, lights.group_power.z, world.panels_off.size(), streamer.relighting()],

@@ -1,6 +1,6 @@
 class_name PromenadeAssembler
 extends RefCounted
-## First bounded assembler: seeded family permutation on a four-module loop.
+## Bounded assemblers: P02 four-module loop; P03 varied sizes and branching.
 ## No global RNG, rejection loop or dependency on chunk visitation order.
 const OPPOSITE := {"north": "south", "south": "north", "east": "west", "west": "east"}
 
@@ -14,34 +14,54 @@ static func shifted(item: Dictionary, offset: Vector2i) -> Dictionary:
 	return result
 
 static func build(pick: Callable, site_w: int, site_d: int) -> Dictionary:
+	return _build(pick, site_w, site_d, false)
+
+static func build_varied(pick: Callable, site_w: int, site_d: int) -> Dictionary:
+	return _build(pick, site_w, site_d, true)
+
+static func _build(pick: Callable, site_w: int, site_d: int, varied: bool) -> Dictionary:
 	var order := ["enfilade", "pillars", "return", "empty"]
 	for i in range(order.size() - 1, 0, -1):
 		var j: int = pick.call("order.%d" % i, i + 1)
 		var swap: String = order[i]
 		order[i] = order[j]
 		order[j] = swap
-	var offsets := [Vector2i(0, 0), Vector2i(100, 0), Vector2i(0, 80), Vector2i(100, 80)]
+	var left: int = (80 if pick.call("sizes.left", 2) == 0 else 120) if varied else 100
+	var right := 200 - left
+	var offsets := [Vector2i(0, 0), Vector2i(left, 0), Vector2i(0, 80), Vector2i(left, 80)]
+	if varied: offsets.append(Vector2i(left, 160))
 	var modules := []
 	var free := []
 	var solid := []
 	var regions := [{"rect": [0, 0, site_w, site_d], "height": 3.2}]
 	var views := {"entry": {"x": 30, "z": 208, "yaw": 0.0, "label": "Entrée basse vers le parcours assemblé"}}
 	var report := []
-	for i in 4:
+	for i in offsets.size():
 		var variant: int = pick.call("module.%d.variant" % i, 2)
-		var m := RoomFamilies.make(order[i], variant)
+		var family: String = order[i] if i < 4 else "empty"
+		var m := RoomFamilies.make_sized(family, variant, left if i in [0,2] else right, 60 if i == 4 else 80) if varied else RoomFamilies.make(family, variant)
+		if i == 4:
+			m.height = 2.2
+			for port in m.ports.values(): port.ceiling = 2.2
+			m.view.label = "Branche basse en impasse"
 		modules.append(m)
 		for f in m.free: free.append(shifted(f, offsets[i]))
 		for s in m.solid: solid.append(shifted(s, offsets[i]))
-		regions.append({"rect": [offsets[i].x, offsets[i].y, offsets[i].x + 100, offsets[i].y + 80], "height": m.height})
+		regions.append({"rect": [offsets[i].x, offsets[i].y, offsets[i].x + m.width, offsets[i].y + m.depth], "height": m.height})
 		var v: Dictionary = m.view.duplicate()
 		v.x += offsets[i].x
 		v.z += offsets[i].y
-		views[order[i]] = v
-		report.append({"slot": i, "family": order[i], "variant": variant, "origin": offsets[i], "height": m.height})
+		views[order[i] if i < 4 else "alcove"] = v
+		report.append({"slot": i, "family": family if i < 4 else "alcove", "variant": variant, "origin": offsets[i], "height": m.height, "width": m.width, "depth": m.depth})
 	var links := []
 	# Loop: NW -> NE -> SE -> SW -> NW. No unattached opening is carved.
-	for edge in [[0, "east", 1, "west"], [1, "south", 3, "north"], [3, "west", 2, "east"], [2, "north", 0, "south"]]:
+	var edges := [[0, "east", 1, "west"], [1, "south", 3, "north"], [3, "west", 2, "east"], [2, "north", 0, "south"]]
+	var topology: int = pick.call("topology", 3) if varied else 0
+	if varied:
+		if topology == 1: edges.remove_at(0)
+		elif topology == 2: edges.remove_at(3)
+		edges.append([3,"south",4,"north"])
+	for edge in edges:
 		var a: int = edge[0]
 		var b: int = edge[2]
 		var pa: Dictionary = modules[a].ports[edge[1]]
@@ -66,7 +86,7 @@ static func build(pick: Callable, site_w: int, site_d: int) -> Dictionary:
 			var cx := xi * 20 + 10
 			var cz := zi * 20 + 10
 			fixtures.append({"rect": [cx - 3, cz - 3, cx + 3, cz + 3], "key": key})
-	return {"id": "P02", "name": "Promenade assemblée", "height": 4.8,
-		"variant": {"order": order}, "assembly": {"modules": report, "links": links},
+	return {"id": "P03" if varied else "P02", "name": "Parcours ramifié" if varied else "Promenade assemblée", "height": 4.8,
+		"variant": {"order": order, "topology": topology, "left_width": left}, "assembly": {"modules": report, "links": links},
 		"free": free, "solid": solid, "lintels": [], "fixtures": fixtures,
 		"views": views, "spawn": "entry", "fixture_margin": 2, "ceiling_regions": regions}

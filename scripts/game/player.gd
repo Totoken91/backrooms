@@ -33,6 +33,8 @@ var light := Color(0.2, 0.2, 0.2)
 @onready var head: Node3D = $Head
 @onready var camera: Camera3D = $Head/Camera3D
 
+var flashlight: Node3D
+
 var _stride := 0.0
 var _walked := 0.0
 var _bob := 0.0
@@ -46,6 +48,8 @@ func _ready() -> void:
 	# The head turns outside physics ticks; interpolating it would add lag.
 	head.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	_build_board()
+	flashlight = load("res://assets/flashlight/flashlight.tscn").instantiate()
+	camera.add_child(flashlight)
 
 
 ## Deck with grip tape and four wheels, under the player (seen looking down).
@@ -112,6 +116,9 @@ func pitch() -> float:
 func _unhandled_input(event: InputEvent) -> void:
 	if not active or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
+	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_F:
+		flashlight.enabled = not flashlight.enabled
+		get_viewport().set_input_as_handled()
 	if event is InputEventMouseMotion:
 		var d: Vector2 = event.relative
 		look_events += 1
@@ -193,6 +200,7 @@ func _skate(delta: float, forward: float, direction: Vector3, boost: bool) -> vo
 
 
 func _process(delta: float) -> void:
+	if flashlight: flashlight.update_light(light, delta, active and speed > 0.1)
 	var moving := active and Vector2(velocity.x, velocity.z).length() > 0.1
 	var target := sin(_walked / STRIDE * TAU) * 0.012 if moving and not skating else 0.0
 	_bob = lerpf(_bob, target, 1.0 - exp(-delta * 18.0))

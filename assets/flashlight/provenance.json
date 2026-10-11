@@ -1,0 +1,11 @@
+{
+  "source": "User supplied flashlight-godot-v3.zip",
+  "sha256": "45abca45fd247d55fecc6d440978919c989c2185d6c8cb570f5b3fc5390c9a48",
+  "geometry": "Created for this project; unbranded utility flashlight",
+  "roughness_source": "Metal Plate 02, Rob Tuytel, Poly Haven, CC0 (pack README)",
+  "roughness_url": "https://polyhaven.com/a/metal_plate_02",
+  "originals": "assets/3d/source/flashlight_v3/",
+  "runtime": "assets/flashlight/",
+  "triangles": 5952,
+  "textures": "1024x1024 embedded GLB textures, reused from imported material; external originals retained only in ignored source directory"
+}
