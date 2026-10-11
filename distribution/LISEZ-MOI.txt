@@ -1,8 +1,12 @@
 HORS PLAN — Prototype d'exploration du Niveau 0
-Windows x64 · Godot 4.6 · P07
+Windows et Linux x64 · Godot 4.6 · P07
 
 Extraire tout le ZIP, puis lancer Hors Plan.exe.
 Conserver Hors Plan.exe et Hors Plan.pck dans le même dossier.
+Sous Linux, extraire le .tar.gz puis lancer Hors Plan.x86_64.
+Dans un terminal depuis le dossier extrait : ./"Hors Plan.x86_64"
+L'archive conserve le droit d'exécution. Si nécessaire : chmod +x "Hors Plan.x86_64"
+Conserver aussi le fichier .pck à côté de l'exécutable Linux.
 Aucune installation nécessaire. Le prototype n'a pas de sauvegarde de partie.
 Chaque nouvelle exploration utilise une nouvelle graine.
 
