@@ -319,7 +319,7 @@ func _read_options() -> Dictionary:
 
 func new_exploration(seed := -1) -> void:
 	var value := seed if seed >= 0 else LevelWorld.fresh_seed(world.seed if world else -1)
-	world = LevelWorld.new(value, str(options.get("composition", "P01")))
+	world = LevelWorld.new(value, str(options.get("composition", "P02")))
 	world.geo_test = options.has("geotest")
 	lights.world = world
 	# Finite composition metadata for the surface shader; outside this site the

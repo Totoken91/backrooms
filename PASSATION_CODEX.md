@@ -1,5 +1,18 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**P02 : premier assemblage par graine :** [familles, contrats et validation](docs/P02_ASSEMBLY_2026-10-11.md).
+Nouveau départ : quatre familles indépendantes (enfilade, piliers, retour,
+vide), mélangées dans quatre slots et reliées en boucle. Entrée basse et trois
+sorties vers le labyrinthe. `RoomFamilies` décrit les ports ;
+`PromenadeAssembler` les raccorde et agrège les données pour le résolveur commun.
+34 graines / 18 ordres observés ; huit suites passées, vrais meshes des raccords
+hauts/bas vérifiés. Captures natives normales seed99/7 avec bloom inspectées.
+Web local : 99 passes, zéro attente, console propre ; onglet/serveur fermés.
+P01 reste accessible avec `composition=P01`. P02 est un assembleur borné :
+cycle et dimensions fixes, pas encore des familles partout dans les chunks.
+Suite : tailles et graphes variés, puis réservations/métadonnées distribuées.
+Aucun push ni déploiement.
+
 **Captures visuelles :** ne pas passer `raw` pour présenter le jeu. Ce mode
 de mesure désactive le bloom, le tonemap et l’exposition artistique. Le bloom
 reste actif par défaut ; confirmé sur `godot-s99-pillars-p01-bloom-default.png`
