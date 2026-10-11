@@ -10,9 +10,13 @@ extends RefCounted
 
 const CELL := 2.5
 const CHUNK := 16
-const HEIGHT := 2.8
-## Side of the square 2 × 2 ft panels (diffuser), centred in their cell.
-const PANEL := 0.6
+## Ceiling height. The references show a high ceiling: the eye sits at about
+## a third of it, panels are ~0.3 of it wide and ~one height apart.
+const HEIGHT := 3.2
+## Ceiling tiles: three per cell. The square panels (diffusers, no frame)
+## fill the middle tile of their cell: ~0.33 of the spacing.
+const TILE := CELL / 3.0
+const PANEL := TILE
 const VERSION := "level0-godot.1"
 const BODY_HEIGHT := 1.9
 const SITE := Rect2i(2, 2, 7, 7)

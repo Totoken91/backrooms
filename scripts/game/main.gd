@@ -314,36 +314,23 @@ func _build_materials() -> void:
 		"floor": _surface("carpet", {"tint": Color(0.84, 0.86, 0.72), "roughness": 0.95}),
 		"ceiling": _surface("ceiling", {"ceiling_grid": true, "tint": Color(1.1, 1.1, 1.05)}),
 	}
+	for m in streamer.materials.values():
+		m.set_shader_parameter("ceiling_height", LevelWorld.HEIGHT)
+		m.set_shader_parameter("tile_size", LevelWorld.TILE)
 	var panel := ShaderMaterial.new()
 	panel.shader = preload("res://shaders/panel.gdshader")
 	panel.set_shader_parameter("diffuser_tex", _texture("diffuser_albedo"))
-	var frame := StandardMaterial3D.new()
-	frame.albedo_color = Color(0.82, 0.8, 0.72)
-	frame.roughness = 0.5
-	frame.metallic = 0.3
-	# Diffuser (0.6 × 0.6 m, a 2 × 2 ft troffer) and its four frame returns.
+	# Diffuser filling its ceiling tile, no visible frame (as in the references).
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var w := 0.3
-	var d := 0.3
+	var w := LevelWorld.PANEL * 0.5
+	var d := LevelWorld.PANEL * 0.5
 	for p in [Vector3(-w, 0, -d), Vector3(w, 0, d), Vector3(w, 0, -d), Vector3(-w, 0, -d), Vector3(-w, 0, d), Vector3(w, 0, d)]:
 		st.set_normal(Vector3.DOWN)
 		st.set_uv(Vector2((p.x + w) / (2 * w), (p.z + d) / (2 * d)))
 		st.add_vertex(p)
 	var mesh := st.commit()
 	mesh.surface_set_material(0, panel)
-	var fr := SurfaceTool.new()
-	fr.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for r in [Rect2(-w - 0.0125, -d - 0.0125, 2 * w + 0.025, 0.0125), Rect2(-w - 0.0125, d, 2 * w + 0.025, 0.0125), Rect2(-w - 0.0125, -d, 0.0125, 2 * d), Rect2(w, -d, 0.0125, 2 * d)]:
-		var a := Vector3(r.position.x, -0.004, r.position.y)
-		var b := Vector3(r.end.x, -0.004, r.position.y)
-		var c := Vector3(r.end.x, -0.004, r.end.y)
-		var e := Vector3(r.position.x, -0.004, r.end.y)
-		for p in [a, c, b, a, e, c]:
-			fr.set_normal(Vector3.DOWN)
-			fr.add_vertex(p)
-	fr.commit(mesh)
-	mesh.surface_set_material(1, frame)
 	streamer.panel_mesh = mesh
 
 

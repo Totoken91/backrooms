@@ -8,7 +8,7 @@ uniform sampler2D span_b : filter_nearest, repeat_disable;
 uniform vec2 occ_origin;        // column 0, relative to the chunk
 uniform float occ_texel = 0.125;
 uniform vec2 occ_size;
-uniform float ceiling = 2.8;
+uniform float ceiling = 3.2;
 // The bake renders in horizontal bands, one per frame (LightBaker._draw):
 // the rows band_y0 .. band_y0 + band_rows of the tiles.
 uniform float band_y0 = 0.0;

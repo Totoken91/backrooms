@@ -7,7 +7,7 @@ extends Node3D
 const CELL := LevelWorld.CELL
 const CHUNK := LevelWorld.CHUNK
 const H := LevelWorld.HEIGHT
-const TILE := 0.625
+const TILE := LevelWorld.TILE
 const WALL_UV := 0.6
 const FIELD_RES := 32
 const AO_RES := 128
@@ -219,7 +219,7 @@ func _emit_floor_and_ceiling(x: int, z: int) -> void:
 	var X := x * CELL
 	var Z := z * CELL
 	_quad("floor", Vector3(X, 0, Z), Vector3(X + CELL, 0, Z), Vector3(X + CELL, 0, Z + CELL), Vector3(X, 0, Z + CELL), Vector3.UP)
-	# Panels replace whole tiles of the world 0.625 m ceiling grid.
+	# Panels replace whole tiles of the ceiling grid (3 × 3 tiles per cell).
 	var holes := []
 	for dz in range(-1, 2):
 		for dx in range(-1, 2):
@@ -229,11 +229,12 @@ func _emit_floor_and_ceiling(x: int, z: int) -> void:
 	if holes.is_empty():
 		_quad("ceiling", Vector3(X, H, Z), Vector3(X + CELL, H, Z), Vector3(X + CELL, H, Z + CELL), Vector3(X, H, Z + CELL), Vector3.DOWN)
 		return
-	for j in 4:
+	var n := int(round(CELL / TILE))
+	for j in n:
 		var run := -1
-		for i in 5:
+		for i in n + 1:
 			var hole := false
-			if i < 4:
+			if i < n:
 				var cx := X + (i + 0.5) * TILE
 				var cz := Z + (j + 0.5) * TILE
 				for f in holes:

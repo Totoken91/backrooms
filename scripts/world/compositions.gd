@@ -43,9 +43,9 @@ static func c01(pick: Callable, site_w: int, site_d: int) -> Dictionary:
 	# Bulkheads frame thresholds without blocking passage. B1 carries the line
 	# of P1b overhead to the north wall and frames the pocket as a portal.
 	var lintels := [
-		{"name": "E1 head", "rect": free[1].rect, "y0": 2.25, "y1": 2.8},
-		{"name": "E2 head", "rect": free[2].rect, "y0": 2.2, "y1": 2.8},
-		{"name": "B1", "rect": [p1_end - thick, room[1], p1_end, p1_north], "y0": 2.3, "y1": 2.8},
+		{"name": "E1 head", "rect": free[1].rect, "y0": 2.25, "y1": LevelWorld.HEIGHT},
+		{"name": "E2 head", "rect": free[2].rect, "y0": 2.2, "y1": LevelWorld.HEIGHT},
+		{"name": "B1", "rect": [p1_end - thick, room[1], p1_end, p1_north], "y0": 2.3, "y1": LevelWorld.HEIGHT},
 	]
 	# Panels: square 2 × 2 ft troffers, one centred in each 2.5 m cell of the
 	# world grid (the site origin and width are whole cells, mirror included),
@@ -83,7 +83,7 @@ static func c01(pick: Callable, site_w: int, site_d: int) -> Dictionary:
 			v.x = site_w - v.x
 			v.yaw = -v.yaw
 	return {
-		"id": "C01", "name": "Pièce désaxée", "height": 2.8,
+		"id": "C01", "name": "Pièce désaxée", "height": LevelWorld.HEIGHT,
 		"variant": {"mirror": mirror, "p1_end": p1_end, "p1_north": p1_north, "p2z": p2z},
 		"free": free, "solid": solid, "lintels": lintels, "fixtures": fixtures,
 		"views": views, "spawn": "entry", "fixture_margin": q(0.3),

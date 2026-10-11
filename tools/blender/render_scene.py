@@ -73,8 +73,8 @@ def material(name, image, scale, tint, rough, axis_scale=(1, 1, 1)):
 
 wall_m = material("Wall", tex("wallpaper_albedo.png"), P["wall_scale"], P["wall_tint"], P["wall_rough"])
 floor_m = material("Floor", tex("carpet_albedo.png"), 0.6, P["floor_tint"], 0.95)
-# 2 × 4 ft tile: texture spans 0.625 m in x and 1.25 m in y (Blender y = -z).
-ceil_m = material("Ceiling", tex("ceiling_tile_albedo.png"), 0.625, P["ceiling_tint"], 0.9, (1, 0.5, 1))
+# Square tiles, three per 2.5 m cell: the 1 × 2 tile texture shows its top half.
+ceil_m = material("Ceiling", tex("ceiling_tile_albedo.png"), 2.5 / 3, P["ceiling_tint"], 0.9, (1, 0.5, 1))
 panel_m = bpy.data.materials.new("Panel")
 panel_m.use_nodes = True
 pn = panel_m.node_tree.nodes

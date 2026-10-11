@@ -62,15 +62,15 @@ vec3 bmap(int map, vec2 p) {
 
 // Direct irradiance of a wall facing `axis` (0 +X, 1 -X, 2 +Z, 3 -Z) at height y,
 // read just in front of it at p.
-// As in surface.gdshader. Wall irradiance at height y from its values at 0.4, 1.6 and 2.5 m: a
+// As in surface.gdshader. Wall irradiance at height y from its values at 0.4, 1.8 and 2.9 m: a
 // quadratic in log space (positive, can rise then fall under the ceiling),
 // bounded by the samples so the extrapolation stays tame.
 float wall_profile(float e0, float e1, float e2, float y) {
 	float l0 = log(max(e0, 1e-4)), l1 = log(max(e1, 1e-4)), l2 = log(max(e2, 1e-4));
-	y = clamp(y, 0.0, 2.8);
-	float a0 = (y - 1.6) * (y - 2.5) / ((0.4 - 1.6) * (0.4 - 2.5));
-	float a1 = (y - 0.4) * (y - 2.5) / ((1.6 - 0.4) * (1.6 - 2.5));
-	float a2 = (y - 0.4) * (y - 1.6) / ((2.5 - 0.4) * (2.5 - 1.6));
+	y = clamp(y, 0.0, ceiling);
+	float a0 = (y - 1.8) * (y - 2.9) / ((0.4 - 1.8) * (0.4 - 2.9));
+	float a1 = (y - 0.4) * (y - 2.9) / ((1.8 - 0.4) * (1.8 - 2.9));
+	float a2 = (y - 0.4) * (y - 1.8) / ((2.9 - 0.4) * (2.9 - 1.8));
 	return min(exp(a0 * l0 + a1 * l1 + a2 * l2), max(e0, max(e1, e2)) * 1.15);
 }
 

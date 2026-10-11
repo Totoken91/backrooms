@@ -24,7 +24,9 @@ uniform float ao_strength = 0.7;
 // dielectric (IOR 1.5) like Cycles' Principled BSDF: wall 0.85, floor 0.95,
 // ceiling 0.9.
 uniform float roughness = 0.9;
-uniform float ceiling_height = 2.8;
+uniform float ceiling_height = 3.2;
+// Side of a ceiling tile (a third of a 2.5 m cell).
+uniform float tile_size = 0.8333;
 // Development: 1 light-map coordinates, 2 raw direct map, 3 direct texture,
 // 4 AO, 5 grey 0.18, 6 albedo, 7 contact, 8 direct E / π, 9 indirect E / π
 // (8 and 9 with the raw option: linear tonemap, comparable to Cycles passes).
@@ -60,15 +62,15 @@ vec3 to_srgb(vec3 c) {
 	return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, lessThan(c, vec3(0.0031308)));
 }
 
-// Wall irradiance at height y from its values at 0.4, 1.6 and 2.5 m: a
+// Wall irradiance at height y from its values at 0.4, 1.8 and 2.9 m: a
 // quadratic in log space (positive, can rise then fall under the ceiling),
 // bounded by the samples so the extrapolation stays tame.
 float wall_profile(float e0, float e1, float e2, float y) {
 	float l0 = log(max(e0, 1e-4)), l1 = log(max(e1, 1e-4)), l2 = log(max(e2, 1e-4));
-	y = clamp(y, 0.0, 2.8);
-	float a0 = (y - 1.6) * (y - 2.5) / ((0.4 - 1.6) * (0.4 - 2.5));
-	float a1 = (y - 0.4) * (y - 2.5) / ((1.6 - 0.4) * (1.6 - 2.5));
-	float a2 = (y - 0.4) * (y - 1.6) / ((2.5 - 0.4) * (2.5 - 1.6));
+	y = clamp(y, 0.0, ceiling_height);
+	float a0 = (y - 1.8) * (y - 2.9) / ((0.4 - 1.8) * (0.4 - 2.9));
+	float a1 = (y - 0.4) * (y - 2.9) / ((1.8 - 0.4) * (1.8 - 2.9));
+	float a2 = (y - 0.4) * (y - 1.8) / ((2.9 - 0.4) * (2.9 - 1.8));
 	return min(exp(a0 * l0 + a1 * l1 + a2 * l2), max(e0, max(e1, e2)) * 1.15);
 }
 
@@ -92,10 +94,9 @@ void fragment() {
 		color = mix(color, color * vec3(0.68, 0.71, 0.52), damp * 0.23);
 	}
 	if (ceiling_grid) {
-		// 2 × 2 ft tiles (0.625 m) with thin T-bar seams; the grid is offset
-		// half a tile so a tile is centred in each 2.5 m cell, where the
-		// square panels sit.
-		vec2 tile = UV + 0.5;
+		// Square tiles, three per 2.5 m cell (the middle one holds the panel),
+		// with thin T-bar seams.
+		vec2 tile = world_pos.xz / tile_size;
 		vec2 q = fract(tile);
 		vec2 width = fwidth(tile) * 1.2;
 		float seam = max(1.0 - smoothstep(0.0, width.x + 0.004, min(q.x, 1.0 - q.x)), 1.0 - smoothstep(0.0, width.y + 0.002, min(q.y, 1.0 - q.y)));

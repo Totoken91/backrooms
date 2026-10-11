@@ -28,8 +28,8 @@ uniform bool calibrate = false;   // development: writes the texel coordinates
 // again under the ceiling (recessed panels send little light sideways), so
 // three heights are needed (surface.gdshader: wall_profile).
 const float WALL_H0 = 0.4;
-const float WALL_H1 = 1.6;
-const float WALL_H2 = 2.5;
+const float WALL_H1 = 1.8;
+const float WALL_H2 = 2.9;
 
 // Texels whose centre lies in a wall take the light of the nearest free
 // point: otherwise bilinear filtering bleeds black into the floor and walls
@@ -62,11 +62,11 @@ void fragment() {
 			vec4 f = texelFetch(fix_tex, ivec2(i, 0), 0);
 			if (distance(f.xy, p) > reach || f.z <= 0.0) continue;
 			int group = int(texelFetch(fix_tex, ivec2(i, 1), 0).r + 0.5);
-			// 3 × 3 points over the 0.6 m square diffuser, shifted per texel so the
+			// 3 × 3 points over the 0.833 m square diffuser, shifted per texel so the
 			// penumbrae through openings are smooth after the denoise pass.
-			vec2 jit = (vec2(fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453), fract(sin(dot(p, vec2(39.3468, 11.135))) * 24634.6345)) - 0.5) * vec2(0.2, 0.2);
+			vec2 jit = (vec2(fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453), fract(sin(dot(p, vec2(39.3468, 11.135))) * 24634.6345)) - 0.5) * vec2(0.278, 0.278);
 			for (int s = 0; s < 9; s++) {
-				vec2 q = f.xy + vec2(float(s % 3) - 1.0, float(s / 3) - 1.0) * 0.2 + jit;
+				vec2 q = f.xy + vec2(float(s % 3) - 1.0, float(s / 3) - 1.0) * 0.278 + jit;
 				vec3 lp = vec3(q.x, f.w - 0.01, q.y);
 				// Visibility in 3D per receiver height (a lintel can hide a panel
 				// from the floor and not from the top of a wall): floor and h0
@@ -75,8 +75,8 @@ void fragment() {
 				float vis_mid = visible(vec3(p.x, WALL_H1, p.y), lp);
 				float vis_top = visible(vec3(p.x, WALL_H2, p.y), lp);
 				if (vis_low + vis_mid + vis_top < 0.5) continue;
-				// dA = panel area (0.36 m²) / 9; radiance f.z; E += L cos cos dA / d².
-				float w = f.z * 0.04;
+				// dA = panel area (0.694 m²) / 9; radiance f.z; E += L cos cos dA / d².
+				float w = f.z * 0.0772;
 				vec3 v = lp - vec3(p.x, 0.02, p.y);
 				float d2 = dot(v, v);
 				vec3 o = v * inversesqrt(d2);
