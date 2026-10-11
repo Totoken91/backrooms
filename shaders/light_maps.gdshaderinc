@@ -61,6 +61,34 @@ vec4 light_map(int map, vec2 xz) {
 	return chunk_sample(light_maps, MAPS, map, xz, vec4(0.0));
 }
 
+// Transport needs interpolation of energy. The stored values are square
+// roots: squaring a hardware-filtered sample loses energy at every contrast
+// edge. Decode each tap first, then interpolate the linear irradiance.
+vec4 light_energy(int map, vec2 xz) {
+	vec2 uv;
+	int s = light_slot(xz, uv);
+	if (s < 0) return vec4(0.0);
+	ivec2 res = textureSize(light_maps, 0).xy;
+	vec2 pixel = uv * vec2(res) - 0.5;
+	ivec2 p = ivec2(floor(pixel));
+	vec2 f = fract(pixel);
+	vec4 a, b, c, d;
+	if (all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p + 1, res))) {
+		int layer = s * MAPS + map;
+		a = texelFetch(light_maps, ivec3(p, layer), 0);
+		b = texelFetch(light_maps, ivec3(p + ivec2(1, 0), layer), 0);
+		c = texelFetch(light_maps, ivec3(p + ivec2(0, 1), layer), 0);
+		d = texelFetch(light_maps, ivec3(p + ivec2(1, 1), layer), 0);
+	} else {
+		vec2 chunk = floor(xz / CHUNK_SIZE);
+		a = chunk_tap(light_maps, MAPS, map, chunk, p, res, s);
+		b = chunk_tap(light_maps, MAPS, map, chunk, p + ivec2(1, 0), res, s);
+		c = chunk_tap(light_maps, MAPS, map, chunk, p + ivec2(0, 1), res, s);
+		d = chunk_tap(light_maps, MAPS, map, chunk, p + ivec2(1, 1), res, s);
+	}
+	return mix(mix(a * a, b * b, f.x), mix(c * c, d * d, f.x), f.y);
+}
+
 // Room space (floor, ceiling heights) of the column at xz; the default room
 // where no chunk is loaded.
 vec2 gap_map(vec2 xz, float default_ceiling) {

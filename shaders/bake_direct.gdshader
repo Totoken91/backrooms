@@ -1,7 +1,7 @@
 shader_type canvas_item;
 render_mode blend_disabled;
 // Light bake, pass 1: direct light of the panels on a chunk, 0.25 m texels.
-// The viewport holds four 160 × 160 tiles side by side:
+// The viewport holds five 160 × 160 tiles side by side:
 //   tile 0: floor (up), wall h0 (+X, -X, +Z)
 //   tile 1: wall h0 (-Z), wall h1 (+X, -X, +Z)
 //   tile 2: wall h1 (-Z), wall h2 (+X, -X, +Z)
@@ -11,7 +11,7 @@ render_mode blend_disabled;
 // The floor and wall receivers sit in the column's own space (gap.gdshaderinc).
 // "Wall" values are the irradiance on a vertical surface facing that axis, at
 // three heights of the column's room space. Panels are Lambertian squares facing down,
-// sampled at 8 points; visibility is traced in 3D through the solid spans of
+// integrated at 9 symmetric quadrature points; visibility is traced through
 // the level (spans.gdshaderinc). Coordinates are relative to the chunk origin.
 // Values are stored as sqrt(E / e_max) for low-end precision.
 
@@ -63,26 +63,29 @@ void fragment() {
 			vec4 f = texelFetch(fix_tex, ivec2(i, 0), 0);
 			if (distance(f.xy, p) > reach || f.z <= 0.0) continue;
 			int group = int(texelFetch(fix_tex, ivec2(i, 1), 0).r + 0.5);
-			// 3 × 3 points over the 0.833 m square diffuser, shifted per texel so the
-			// penumbrae through openings are smooth after the denoise pass.
-			vec2 jit = (vec2(fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453), fract(sin(dot(p, vec2(39.3468, 11.135))) * 24634.6345)) - 0.5) * vec2(0.278, 0.278);
+			// Tensor-product Gauss-Legendre integration over the square panel.
+			// Translating all nine points randomly per texel changes the source
+			// centroid: the wall-height reconstruction stretches that noise into
+			// vertical streaks. Symmetric quadrature has no moving centroid.
+			float nodes[3] = float[3](-0.7745966692, 0.0, 0.7745966692);
+			float weights[3] = float[3](0.2777777778, 0.4444444444, 0.2777777778);
 			for (int s = 0; s < 9; s++) {
-				vec2 q = f.xy + vec2(float(s % 3) - 1.0, float(s / 3) - 1.0) * 0.278 + jit;
+				vec2 q = f.xy + vec2(nodes[s % 3], nodes[s / 3]) * 0.4166666667;
 				vec3 lp = vec3(q.x, f.w - 0.01, q.y);
-				// Visibility in 3D per receiver height (a lintel can hide a panel
-				// from the floor and not from the top of a wall): floor and h0
-				// share one test.
-				float vis_low = visible(vec3(p.x, gap.x + 0.02, p.y), lp);
+				// Each receiver has its own visibility. A low wall can see over
+				// a slab that hides the same panel from the floor below it.
+				float vis_floor = visible(vec3(p.x, gap.x + 0.02, p.y), lp);
+				float vis_low = visible(vec3(p.x, hs.x, p.y), lp);
 				float vis_mid = visible(vec3(p.x, hs.y, p.y), lp);
 				float vis_top = visible(vec3(p.x, hs.z, p.y), lp);
-				if (vis_low + vis_mid + vis_top < 0.5) continue;
-				// dA = panel area (0.694 m²) / 9; radiance f.z; E += L cos cos dA / d².
-				float w = f.z * 0.0772;
+				if (vis_floor + vis_low + vis_mid + vis_top < 0.5) continue;
+				// dA = panel area × product quadrature weight; sum(dA) = 0.694 m².
+				float w = f.z * 0.6944444444 * weights[s % 3] * weights[s / 3];
 				vec3 v = lp - vec3(p.x, gap.x + 0.02, p.y);
 				float d2 = dot(v, v);
 				vec3 o = v * inversesqrt(d2);
-				e[0] += vis_low * w * o.y * o.y / d2;
-				if (group > 0) eg[group - 1] += vis_low * w * o.y * o.y / d2;
+				e[0] += vis_floor * w * o.y * o.y / d2;
+				if (group > 0) eg[group - 1] += vis_floor * w * o.y * o.y / d2;
 				for (int h = 0; h < 3; h++) {
 					float vis = h == 0 ? vis_low : (h == 1 ? vis_mid : vis_top);
 					if (vis < 0.5) continue;

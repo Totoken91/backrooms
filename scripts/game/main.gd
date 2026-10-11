@@ -191,6 +191,20 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 			return
 		var path := folder.path_join("godot-s%d-%s%s.png" % [world.seed, n, str(options.get("tag", ""))])
 		get_viewport().get_texture().get_image().save_png(path)
+		# Compare material and lighting at precisely the same camera/bake.
+		if options.has("layers"):
+			var saved := {}
+			for m in streamer.materials.values():
+				saved[m] = m.get_shader_parameter("debug_view")
+			for mode in [6, 8, 9, 10]:
+				for m in streamer.materials.values():
+					m.set_shader_parameter("debug_view", float(mode))
+				for frame in 2:
+					await get_tree().process_frame
+					await RenderingServer.frame_post_draw
+				get_viewport().get_texture().get_image().save_png(path.get_basename() + "-layer%d.png" % mode)
+			for m in streamer.materials.values():
+				m.set_shader_parameter("debug_view", saved[m])
 		if options.has("dump"):
 			_dump(folder, n)
 		print("capture ", path, " fps ", Engine.get_frames_per_second(), " bakes ", streamer.pending_bakes(), " build max ", streamer.max_build_ms, " phases ", streamer.chunks.get(Vector2i(0, 0)).phases if streamer.chunks.has(Vector2i(0, 0)) else {}, " chunks ", streamer.chunks.size())

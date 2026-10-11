@@ -51,14 +51,12 @@ vec2 free_point(vec2 p) {
 
 // Direct map `map` (0-3) at p, relative to the baked chunk.
 vec4 dmap(int map, vec2 p) {
-	vec4 v = light_map(map, bake_origin + p);
-	return v * v * e_max;
+	return light_energy(map, bake_origin + p) * e_max;
 }
 
-// First-gather map `map` (4-6): irradiance (rgb) at p, relative to the chunk.
+// First-gather map `map` (5-7): irradiance (rgb) at p, relative to the chunk.
 vec3 bmap(int map, vec2 p) {
-	vec3 v = light_map(map, bake_origin + p).rgb;
-	return v * v * i_max * use_bounce;
+	return light_energy(map, bake_origin + p).rgb * i_max * use_bounce;
 }
 
 // Direct irradiance of a wall facing `axis` (0 +X, 1 -X, 2 +Z, 3 -Z) at height y,
@@ -77,7 +75,7 @@ void fragment() {
 	vec2 local = vec2(mod(cell.x, res), cell.y);
 	vec2 p = free_point((local + 0.5) * texel);
 	vec3 total = vec3(0.0);
-	// Three tiles only (the viewport has four, for the direct pass).
+	// Three tiles only (the viewport has five, for the direct pass).
 	if (tile < 2.5 && occupied(p) < 0.5) {
 		// Receivers in the column's room space: its floor, its ceiling (the
 		// underside of a lintel or duct roof above it), walls midway.

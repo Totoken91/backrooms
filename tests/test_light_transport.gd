@@ -124,8 +124,9 @@ func run() -> void:
 	var filtered := root.get_texture().get_image()
 	check_color(filtered.get_pixel(filtered.get_width() / 2, filtered.get_height() / 2), Color(0.2 * 0.2 * 2.0 / PI, 0, 0).linear_to_srgb(), "bilinear floor light", 3.0 / 255.0)
 	await check_chunk_seams()
+	await check_receiver_shadows()
 	if failures == 0:
-		print("PASS: light transport — linear uniforms, dark blue, zero, greys, surface layers, bilinear floor, chunk edges/corners, negative coordinates, stale slots")
+		print("PASS: light transport — linear uniforms, dark blue, zero, greys, surface layers, bilinear floor, chunk edges/corners, negative coordinates, stale slots, energy interpolation, receiver shadows")
 	quit(0 if failures == 0 else 1)
 
 
@@ -140,7 +141,7 @@ func check_chunk_seams() -> void:
 	rect.size = Vector2(8, 8)
 	vp.add_child(rect)
 	var shader := Shader.new()
-	shader.code = "shader_type canvas_item; render_mode blend_disabled;\n#include \"res://shaders/gap.gdshaderinc\"\n#include \"res://shaders/light_maps.gdshaderinc\"\nuniform vec2 at; uniform bool test_ao=false; void fragment(){COLOR=test_ao?vec4(vec3(ao_map(at)),1.0):light_map(0,at);}"
+	shader.code = "shader_type canvas_item; render_mode blend_disabled;\n#include \"res://shaders/gap.gdshaderinc\"\n#include \"res://shaders/light_maps.gdshaderinc\"\nuniform vec2 at; uniform bool test_ao=false; uniform bool test_energy=false; void fragment(){COLOR=test_ao?vec4(vec3(ao_map(at)),1.0):(test_energy?light_energy(0,at):light_map(0,at));}"
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 	rect.material = mat
@@ -178,6 +179,31 @@ func check_chunk_seams() -> void:
 			var img := vp.get_texture().get_image()
 			var v: float = sample[1]
 			check_color(img.get_pixel(4, 4), Color(v, v, v), "chunk seam %s ao=%s" % [sample[0], test_ao])
+	# sqrt-encoded maps must mix decoded energies, both inside a chunk and
+	# across its edges/corners. Mixing encoded values and squaring gives 0.16
+	# instead of 0.20 for the first case: a 20% artificial energy loss.
+	mat.set_shader_parameter("test_ao", false)
+	mat.set_shader_parameter("test_energy", true)
+	var energy_cases := [[Vector2(39.999, 20), 0.2], [Vector2(40.001, 20), 0.2], [Vector2(40, 40), 0.3], [Vector2(-0.001, 20), 0.025], [Vector2(0.001, 20), 0.025]]
+	for sample in energy_cases:
+		mat.set_shader_parameter("at", sample[0])
+		for frame in 2:
+			await process_frame
+			await RenderingServer.frame_post_draw
+		var v: float = sample[1]
+		check_color(vp.get_texture().get_image().get_pixel(4, 4), Color(v, v, v), "energy seam %s" % sample[0])
+	var contrast := light[0].duplicate()
+	contrast.fill(Color(0.2, 0.2, 0.2, 1))
+	for y in 2:
+		contrast.set_pixel(1, y, Color(0.6, 0.6, 0.6, 1))
+	maps.update_layer(contrast, 0)
+	mat.set_shader_parameter("at", Vector2(20, 20))
+	for frame in 2:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	check_color(vp.get_texture().get_image().get_pixel(4, 4), Color(0.2, 0.2, 0.2), "energy interior contrast")
+	maps.update_layer(light[0], 0)
+	mat.set_shader_parameter("test_energy", false)
 	# A missing or reused slot must clamp to the owned chunk, never read stale light.
 	for invalid in [Vector2(1e6, 1e6), Vector2(8, 0)]:
 		slots[1] = invalid
@@ -187,4 +213,68 @@ func check_chunk_seams() -> void:
 			await process_frame
 			await RenderingServer.frame_post_draw
 		check_color(vp.get_texture().get_image().get_pixel(4, 4), Color(0.2, 0.2, 0.2), "missing/stale neighbour %s" % invalid)
+	vp.queue_free()
+
+
+func check_receiver_shadows() -> void:
+	# A 0.6 m slab close to the receiver hides a panel from the floor, but
+	# not from a point 0.4 m higher on the wall. Sharing floor visibility
+	# incorrectly turns both channels black.
+	var vp := SubViewport.new()
+	vp.size = Vector2i(40, 8)
+	vp.disable_3d = true
+	vp.transparent_bg = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(vp)
+	var rect := ColorRect.new()
+	rect.size = Vector2(40, 8)
+	vp.add_child(rect)
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/bake_direct.gdshader")
+	rect.material = mat
+	var a := Image.create(32, 32, false, Image.FORMAT_RGBAH)
+	a.fill(Color(-10, 0, 3.2, 100))
+	a.fill_rect(Rect2i(2, 0, 2, 32), Color(-10, 0.6, 3.2, 100))
+	var b := Image.create(32, 32, false, Image.FORMAT_RGBAH)
+	b.fill(Color(-100, -100, -100, -100))
+	var fixtures := Image.create(1, 2, false, Image.FORMAT_RGBAF)
+	fixtures.set_pixel(0, 0, Color(1.625, 0.125, 12, 3.2))
+	fixtures.set_pixel(0, 1, Color(0, 0, 0, 0))
+	mat.set_shader_parameter("span_a", ImageTexture.create_from_image(a))
+	mat.set_shader_parameter("span_b", ImageTexture.create_from_image(b))
+	mat.set_shader_parameter("occ_origin", Vector2.ZERO)
+	mat.set_shader_parameter("occ_size", Vector2(32, 32))
+	mat.set_shader_parameter("fix_tex", ImageTexture.create_from_image(fixtures))
+	mat.set_shader_parameter("fix_count", 1)
+	mat.set_shader_parameter("tiles", 5.0)
+	mat.set_shader_parameter("res", 8.0)
+	mat.set_shader_parameter("band_rows", 8.0)
+	for frame in 2:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var shadowed := vp.get_texture().get_image().get_pixel(0, 0)
+	print("probe slab floor / low wall encoded ", shadowed.r, " / ", shadowed.g)
+	if shadowed.r > 0.01 or shadowed.g < 0.05:
+		failures += 1
+		printerr("FAIL: floor and low wall must have independent shadows: ", shadowed)
+	a.fill(Color(-10, 0, 3.2, 100))
+	mat.set_shader_parameter("span_a", ImageTexture.create_from_image(a))
+	for frame in 2:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var clear := vp.get_texture().get_image().get_pixel(0, 0)
+	if clear.r < 0.05 or clear.g < 0.05:
+		failures += 1
+		printerr("FAIL: both receivers must see the unoccluded panel: ", clear)
+	# A symmetric panel must give symmetric direct illumination: no random
+	# source-centroid shift from one receiver column to the next.
+	fixtures.set_pixel(0, 0, Color(1.0, 0.125, 12, 3.2))
+	mat.set_shader_parameter("fix_tex", ImageTexture.create_from_image(fixtures))
+	for frame in 2:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var symmetric := vp.get_texture().get_image()
+	var left := symmetric.get_pixel(0, 0)
+	var right := symmetric.get_pixel(7, 0)
+	check_color(Color(left.r, left.g, 0), Color(right.r, right.b, 0), "symmetric panel integration", 1.0 / 255.0)
 	vp.queue_free()

@@ -15,6 +15,12 @@ textures réutilisées, débruitage en bandes. Rendu avant/après identique sur 
 deux vues contrôlées. Mesure directe fraîche dim3 : 1,03 de Cycles ; premier
 rebond toujours à 0,79. Les pics GPU/relecture restent à traiter.
 
+**Transport suivant :** [interpolation d'énergie, ombres par hauteur et bandes](docs/LIGHT_TRANSPORT_FOLLOWUP_2026-10-11.md).
+Gather en énergie linéaire, visibilité distincte du sol/mur bas, panneaux
+intégrés par quadrature symétrique. Dim3 : directe 1,01, premier rebond 0,81
+de Cycles ; dim0 : directe 0,82, rebond 0,80. Déficit encore ouvert. Captures
+`layers` pour isoler matériau/direct/rebonds. Toujours aucun push.
+
 Document de reprise pour Codex. État au commit qui ajoute ce fichier (branche
 `main`). Tout ce qui suit a été vérifié en local ; les chiffres viennent des
 outils de mesure décrits plus bas.
