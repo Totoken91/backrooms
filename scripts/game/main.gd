@@ -160,6 +160,10 @@ func _add_audit_views() -> void:
 				"position": Vector3(a.x, 0, a.y), "yaw": PI / 2.0 if axis == 0 else PI,
 				"label": "chunk boundary", "pitch": -0.25,
 			}
+			var key := "seam-x" if axis == 0 else "seam-z"
+			world.views[key + "-across"] = world.views[key].duplicate()
+			world.views[key + "-across"].position = Vector3(b.x, 0, b.y)
+			world.views[key + "-back"] = world.views[key].duplicate()
 			break
 
 
@@ -174,6 +178,24 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 	if options.has("skate"):
 		player.toggle_skate()
 	for n in names:
+		# QA only: physically sample the short clear crossing in both directions.
+		# Other view changes remain teleports; this is not a navigation test.
+		if options.has("walk_audit") and (n.ends_with("-across") or n.ends_with("-back")) and world.views.has(n):
+			var from := player.global_position
+			var to: Vector3 = world.views[n].position
+			to.y = from.y
+			if from.distance_to(to) > 2.0:
+				printerr("FAIL: audit crossing must start at the adjacent seam view")
+				get_tree().quit(1)
+				return
+			for step in range(1, 37):
+				var p := from.lerp(to, step / 36.0)
+				if world.circle_blocked(p.x, p.z, 0.3):
+					printerr("FAIL: obstructed audit crossing")
+					get_tree().quit(1)
+					return
+				player.place(p, world.views[n].yaw, -0.25)
+				await get_tree().process_frame
 		if not view(n):
 			printerr("FAIL: missing capture view: ", n)
 			get_tree().quit(1)

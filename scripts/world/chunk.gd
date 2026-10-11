@@ -26,6 +26,8 @@ var bounce := []
 ## Bake again after a light change: 1 direct, then 2 first and 3 second
 ## gather; the current light stays shown until each new pass is ready.
 var relight := 0
+## Invalidates suspended bake results when a panel changes.
+var light_revision := 0
 var build_ms := 0.0
 var max_slice_ms := 0.0
 var built := false

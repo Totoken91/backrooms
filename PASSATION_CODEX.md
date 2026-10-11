@@ -1,5 +1,14 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**Chargement et extinction :** [validation ciblée et invalidation des passes suspendues](docs/STREAMING_VALIDATION_2026-10-11.md).
+Extinction pendant une passe : résultat périmé désormais rejeté par révision,
+monde et propriétaire. Test ordonnanceur avec slots GPU, coordonnées négatives,
+retour après éviction et changement de graine passé. Captures réelles seed99/7 :
+retours identiques pixel par pixel ; extinction c260 achevée. Suites GPU passées.
+Pics toujours présents ; pas de gain de fluidité revendiqué, ni de nouvelle
+validation Web. Suite : volumes à hauteur variable et compositions.
+Aucun push ni déploiement.
+
 **Lectures du gather :** [trois cartes utiles par impact de mur](docs/GATHER_MAP_READS_2026-10-11.md).
 Quatre lectures de cartes réduites à trois selon l'orientation du mur ; énergies
 et rendu conservés. Oracle GPU des quatre orientations passé. Deux profils

@@ -42,6 +42,7 @@ var _white: Image
 
 var _building: Chunk = null
 var _baking := false
+var discarded_bakes := 0
 
 
 func _ready() -> void:
@@ -179,8 +180,9 @@ func _build(k: Vector2i, slice_ms := INF) -> void:
 	add_child(chunk)
 	chunks[k] = chunk
 	_building = chunk
-	await chunk.setup(world, k, materials, panel_mesh, slice_ms)
-	if not is_instance_valid(chunk) or not chunk.built:
+	var source_world := world
+	await chunk.setup(source_world, k, materials, panel_mesh, slice_ms)
+	if not is_instance_valid(chunk) or world != source_world or chunks.get(k) != chunk or not chunk.built:
 		return
 	generation += 1
 	_upload(chunk)
@@ -232,24 +234,33 @@ func _next_bake() -> void:
 		_bake_gather(best, best_stage == 2)
 
 
+func _current_bake(chunk, source_world: LevelWorld, revision: int) -> bool:
+	return is_instance_valid(chunk) and world == source_world and chunks.get(chunk.coord) == chunk and chunk.light_revision == revision
+
+
 func _bake_direct(chunk: Chunk) -> void:
 	_baking = true
-	var tiles: Array = await baker.direct(world, chunk.coord)
-	if is_instance_valid(chunk):
+	var source_world := world
+	var revision := chunk.light_revision
+	var tiles: Array = await baker.direct(source_world, chunk.coord)
+	if _current_bake(chunk, source_world, revision) and not chunk.ao:
+		await chunk.bake_ao(AO_SLICE_MS)
+	if _current_bake(chunk, source_world, revision):
 		chunk.direct = tiles
 		if chunk.relight == 1:
 			chunk.relight = 2
-		if not chunk.ao:
-			await chunk.bake_ao(AO_SLICE_MS)
-		if is_instance_valid(chunk):
-			_upload(chunk, "direct")
+		_upload(chunk, "direct")
+	else:
+		discarded_bakes += 1
 	_baking = false
 
 
 func _bake_gather(chunk: Chunk, second: bool) -> void:
 	_baking = true
-	var tiles: Array = await baker.indirect(world, chunk.coord, second)
-	if is_instance_valid(chunk):
+	var source_world := world
+	var revision := chunk.light_revision
+	var tiles: Array = await baker.indirect(source_world, chunk.coord, second)
+	if _current_bake(chunk, source_world, revision):
 		if second:
 			chunk.bounce = tiles
 			if chunk.relight == 3:
@@ -259,6 +270,8 @@ func _bake_gather(chunk: Chunk, second: bool) -> void:
 			if chunk.relight == 2:
 				chunk.relight = 3
 		_upload(chunk, "bounce" if second else "bounce1")
+	else:
+		discarded_bakes += 1
 	_baking = false
 
 
@@ -296,14 +309,15 @@ func relight(p: Vector2) -> void:
 	var around := WorldStreamer.chunk_of(Vector3(p.x, 0, p.y))
 	for k in chunks:
 		var chunk: Chunk = chunks[k]
-		if chunk.direct.is_empty():
-			continue
 		var rect := Rect2(LightBaker.chunk_origin(k), Vector2(size, size))
 		var nearest := p.clamp(rect.position, rect.end)
 		if nearest.distance_to(p) < 9.0:
+			chunk.light_revision += 1
 			chunk.relight = 1
-		elif absi(k.x - around.x) <= 1 and absi(k.y - around.y) <= 1 and chunk.relight == 0:
-			chunk.relight = 2
+		elif absi(k.x - around.x) <= 1 and absi(k.y - around.y) <= 1:
+			chunk.light_revision += 1
+			if chunk.relight != 1:
+				chunk.relight = 2
 
 
 ## Chunks with a light change still being baked.
