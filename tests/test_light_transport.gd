@@ -125,8 +125,9 @@ func run() -> void:
 	check_color(filtered.get_pixel(filtered.get_width() / 2, filtered.get_height() / 2), Color(0.2 * 0.2 * 2.0 / PI, 0, 0).linear_to_srgb(), "bilinear floor light", 3.0 / 255.0)
 	await check_chunk_seams()
 	await check_receiver_shadows()
+	await check_wall_profile()
 	if failures == 0:
-		print("PASS: light transport — linear uniforms, dark blue, zero, greys, surface layers, bilinear floor, chunk edges/corners, negative coordinates, stale slots, energy interpolation, receiver shadows")
+		print("PASS: analytic wall profile and light transport — linear uniforms, dark blue, zero, greys, surface layers, bilinear floor, chunk edges/corners, negative coordinates, stale slots, energy interpolation, receiver shadows")
 	quit(0 if failures == 0 else 1)
 
 
@@ -213,6 +214,45 @@ func check_chunk_seams() -> void:
 			await process_frame
 			await RenderingServer.frame_post_draw
 		check_color(vp.get_texture().get_image().get_pixel(4, 4), Color(0.2, 0.2, 0.2), "missing/stale neighbour %s" % invalid)
+	vp.queue_free()
+
+
+func point_wall(r: float, y: float) -> float:
+	var d := maxf(3.19 - y, 0.0)
+	return 12.0 * (25.0 / 36.0) * r * d / pow(r * r + d * d, 2)
+
+
+func check_wall_profile() -> void:
+	var vp := SubViewport.new()
+	vp.size = Vector2i(8, 8)
+	vp.disable_3d = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(vp)
+	var rect := ColorRect.new()
+	rect.size = Vector2(8, 8)
+	vp.add_child(rect)
+	var shader := Shader.new()
+	shader.code = "shader_type canvas_item; render_mode blend_disabled;\n#include \"res://shaders/gap.gdshaderinc\"\nuniform vec3 samples; uniform float y; uniform float expected; void fragment(){float e=wall_profile(samples.x,samples.y,samples.z,y,vec2(0,3.2),3.19); COLOR=vec4(vec3(0.5*e/expected),1.0);}"
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	rect.material = mat
+	# Independent analytic point-emitter law, including heights between and
+	# beyond the stored samples. Old log interpolation cannot reproduce it.
+	for r in [2.0, 4.0, 8.0]:
+		mat.set_shader_parameter("samples", Vector3(point_wall(r, 0.4), point_wall(r, 1.65), point_wall(r, 2.9)))
+		for y in [0.1, 1.0, 2.2, 2.8, 3.1]:
+			mat.set_shader_parameter("y", y)
+			mat.set_shader_parameter("expected", point_wall(r, y))
+			for frame in 2:
+				await process_frame
+				await RenderingServer.frame_post_draw
+			check_color(vp.get_texture().get_image().get_pixel(4, 4), Color(0.5, 0.5, 0.5), "wall profile r=%s y=%s" % [r, y])
+	mat.set_shader_parameter("samples", Vector3.ZERO)
+	mat.set_shader_parameter("expected", 1.0)
+	for frame in 2:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	check_color(vp.get_texture().get_image().get_pixel(4, 4), Color.BLACK, "unlit wall stays black")
 	vp.queue_free()
 
 

@@ -66,7 +66,7 @@ float wall_direct(vec2 p, int axis, float y) {
 	float h0 = axis == 0 ? a.y : axis == 1 ? a.z : axis == 2 ? a.w : b.x;
 	float h1 = axis == 0 ? b.y : axis == 1 ? b.z : axis == 2 ? b.w : c.x;
 	float h2 = axis == 0 ? c.y : axis == 1 ? c.z : axis == 2 ? c.w : d.x;
-	return wall_profile(h0, h1, h2, y, column_gap(p));
+	return wall_profile(h0, h1, h2, y, column_gap(p), ceiling - 0.01);
 }
 
 void fragment() {

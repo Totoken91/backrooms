@@ -21,6 +21,10 @@ intégrés par quadrature symétrique. Dim3 : directe 1,01, premier rebond 0,81
 de Cycles ; dim0 : directe 0,82, rebond 0,80. Déficit encore ouvert. Captures
 `layers` pour isoler matériau/direct/rebonds. Toujours aucun push.
 
+**Profil vertical suivant :** [reconstruction physique et mesures](docs/WALL_PROFILE_2026-10-11.md).
+Haut des murs mieux reconstruit ; dim3 directe 1,02, rebond 0,83 ; dim0
+0,82 / 0,81. Approximation moins précise très près des panneaux dans le test
+analytique ; déficit indirect encore ouvert. Travail local, aucun push.
 Document de reprise pour Codex. État au commit qui ajoute ce fichier (branche
 `main`). Tout ce qui suit a été vérifié en local ; les chiffres viennent des
 outils de mesure décrits plus bas.

@@ -103,7 +103,7 @@ void fragment() {
 		float h0 = axis == 0 ? d0.y : axis == 1 ? d0.z : axis == 2 ? d0.w : d1.x;
 		float h1 = axis == 0 ? d1.y : axis == 1 ? d1.z : axis == 2 ? d1.w : d2.x;
 		float h2 = axis == 0 ? d2.y : axis == 1 ? d2.z : axis == 2 ? d2.w : d3.x;
-		direct = vec3(wall_profile(h0, h1, h2, world_pos.y, gap));
+		direct = vec3(wall_profile(h0, h1, h2, world_pos.y, gap, ceiling_height - 0.01));
 		vec3 b = light_map(10, at).rgb;
 		bounce = b * b * i_max;
 	}
