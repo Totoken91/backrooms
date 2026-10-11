@@ -6,7 +6,7 @@ render_mode blend_disabled;
 // first gather on them, the ceiling above all (two bounces). Three 160 × 160 tiles:
 //   tile 0: floor (receiver facing up, at the floor)
 //   tile 1: ceiling (facing down, at the ceiling)
-//   tile 2: walls (average of the four horizontal orientations, at 1.4 m)
+//   tile 2: walls (four horizontal orientations, halfway up the local room)
 // Rays (16 azimuths × 6 elevations, uniform over the sphere) march the level
 // in 3D through its solid spans (spans.gdshaderinc): a ray entering a solid
 // sideways hits a wall face, crossing the bottom of a span a ceiling or the
@@ -67,10 +67,13 @@ vec3 bmap(int map, vec2 p) {
 // Direct irradiance of a wall facing `axis` (0 +X, 1 -X, 2 +Z, 3 -Z) at height y,
 // read just in front of it at p.
 float wall_direct(vec2 p, int axis, float y) {
-	vec4 a = dmap(0, p), b = dmap(1, p), c = dmap(2, p), d = dmap(3, p);
-	float h0 = axis == 0 ? a.y : axis == 1 ? a.z : axis == 2 ? a.w : b.x;
-	float h1 = axis == 0 ? b.y : axis == 1 ? b.z : axis == 2 ? b.w : c.x;
-	float h2 = axis == 0 ? c.y : axis == 1 ? c.z : axis == 2 ? c.w : d.x;
+	// Every orientation uses three consecutive maps, not all four. -Z is
+	// packed in maps 1/2/3 (red); the other axes use 0/1/2 (g/b/a).
+	int first = axis == 3 ? 1 : 0;
+	vec4 a = dmap(first, p), b = dmap(first + 1, p), c = dmap(first + 2, p);
+	float h0 = axis == 0 ? a.y : axis == 1 ? a.z : axis == 2 ? a.w : a.x;
+	float h1 = axis == 0 ? b.y : axis == 1 ? b.z : axis == 2 ? b.w : b.x;
+	float h2 = axis == 0 ? c.y : axis == 1 ? c.z : axis == 2 ? c.w : c.x;
 	return wall_profile(h0, h1, h2, y, column_gap(p), ceiling - 0.01);
 }
 

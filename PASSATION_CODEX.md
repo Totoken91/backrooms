@@ -1,5 +1,13 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**Lectures du gather :** [trois cartes utiles par impact de mur](docs/GATHER_MAP_READS_2026-10-11.md).
+Quatre lectures de cartes réduites à trois selon l'orientation du mur ; énergies
+et rendu conservés. Oracle GPU des quatre orientations passé. Deux profils
+natifs restent proches de la référence : ne pas annoncer de gain global de FPS.
+Quinze captures identiques pixel par pixel ; suites GPU et Web local validés
+(99 passes, zéro attente, console propre).
+Aucun push ni déploiement.
+
 **Calcul direct allégé :** [récepteurs utiles et mesures répétées](docs/DIRECT_RECEIVER_COST_2026-10-11.md).
 Visibilités calculées seulement pour les hauteurs stockées dans chaque tuile,
 avec conservation des fallbacks. Seed99 p95 natif ~28 vers ~19 ms sur deux

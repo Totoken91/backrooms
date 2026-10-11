@@ -126,6 +126,7 @@ func run() -> void:
 	await check_chunk_seams()
 	await check_receiver_shadows()
 	await check_wall_profile()
+	await check_wall_map_reads()
 	await check_uniform_gather()
 	if failures == 0:
 		print("PASS: analytic wall profile and light transport — linear uniforms, dark blue, zero, greys, surface layers, bilinear floor, chunk edges/corners, negative coordinates, stale slots, energy interpolation, receiver shadows, uniform gather")
@@ -436,3 +437,76 @@ func check_direct_pruning(mat: ShaderMaterial, vp: SubViewport) -> void:
 	if vp.get_texture().get_image().get_data() != expected:
 		failures += 1
 		printerr("FAIL: receiver pruning must preserve every packed direct channel")
+
+
+func check_wall_map_reads() -> void:
+	# Exercise the actual production wall function against the old four-map
+	# oracle. Distinct RGBA values catch all packed-channel/orientation swaps.
+	var vp := SubViewport.new()
+	vp.size = Vector2i(32, 16)
+	vp.disable_3d = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(vp)
+	var rect := ColorRect.new()
+	rect.size = Vector2(32, 16)
+	vp.add_child(rect)
+	var production := FileAccess.get_file_as_string("res://shaders/bake_indirect.gdshader")
+	var start := production.find("float wall_direct(")
+	var wall_code := production.substr(start, production.find("void fragment()", start) - start)
+	var shader := Shader.new()
+	shader.code = """shader_type canvas_item; render_mode blend_disabled;
+#include "res://shaders/spans.gdshaderinc"
+#include "res://shaders/gap.gdshaderinc"
+#include "res://shaders/light_maps.gdshaderinc"
+uniform vec2 at;
+uniform bool oracle;
+uniform vec2 bake_origin;
+vec4 dmap(int map,vec2 p){return light_energy(map,bake_origin+p)*6.0;}
+""" + wall_code + """
+float old_wall(vec2 p,int axis,float y){
+ vec4 a=dmap(0,p),b=dmap(1,p),c=dmap(2,p),d=dmap(3,p);
+ float h0=axis==0?a.y:axis==1?a.z:axis==2?a.w:b.x;
+ float h1=axis==0?b.y:axis==1?b.z:axis==2?b.w:c.x;
+ float h2=axis==0?c.y:axis==1?c.z:axis==2?c.w:d.x;
+ return wall_profile(h0,h1,h2,y,column_gap(p),ceiling-0.01);
+}
+void fragment(){int axis=int(floor(UV.x*4.0));float y=UV.y*3.2;
+ float e=oracle?old_wall(at,axis,y):wall_direct(at,axis,y);
+ COLOR=vec4(vec3(sqrt(clamp(e/6.0,0.0,1.0))),1.0);}
+"""
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	rect.material = mat
+	var layers: Array[Image] = []
+	var slots := PackedVector2Array()
+	slots.resize(49)
+	slots.fill(Vector2(1e6, 1e6))
+	for slot in 49:
+		for layer in 11:
+			var im := Image.create(2, 2, false, Image.FORMAT_RGBA8)
+			for y in 2:
+				for x in 2:
+					im.set_pixel(x,y,Color(0.1+layer*0.07+x*0.1,0.2+layer*0.05+y*0.1,0.3+layer*0.03+x*0.1,0.4+layer*0.02+y*0.1))
+			layers.append(im)
+	slots[0] = Vector2.ZERO
+	slots[1] = Vector2(1,0)
+	var maps := Texture2DArray.new()
+	maps.create_from_images(layers)
+	mat.set_shader_parameter("light_maps", maps)
+	mat.set_shader_parameter("slot_chunk", slots)
+	# Interior, chunk boundary, absent owner, negative unloaded coordinates.
+	for at in [Vector2(20,20),Vector2(40,20),Vector2(80,20),Vector2(-0.1,20)]:
+		mat.set_shader_parameter("at", at)
+		mat.set_shader_parameter("oracle", true)
+		for frame in 2:
+			await process_frame
+			await RenderingServer.frame_post_draw
+		var expected := vp.get_texture().get_image().get_data()
+		mat.set_shader_parameter("oracle", false)
+		for frame in 2:
+			await process_frame
+			await RenderingServer.frame_post_draw
+		if vp.get_texture().get_image().get_data() != expected:
+			failures += 1
+			printerr("FAIL: compact wall reads differ from four-map oracle at ", at)
+	vp.queue_free()
