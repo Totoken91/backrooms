@@ -2,13 +2,24 @@
 
 **Alignement lore Level 0 :** [lecture Wikidot et plan](docs/LEVEL0_WIKIDOT_ALIGNMENT_2026-10-11.md).
 La page fournie par Kenny devient la référence de lore pour le prototype.
-Suite conseillée : profils architecturaux distincts et pilote d'arches,
-puis grands champs de piliers, zones noires, fosses et pièces rouges.
+Kenny a exclu les arches. Voir la feuille de route consolidée
+[DEVELOPMENT_ROADMAP](docs/DEVELOPMENT_ROADMAP.md) : profils à piliers,
+multi-chunks, zones noires, fosses, pièces rouges, puis réorganisation.
 Ne pas confondre cache déterministe et future réorganisation hors observation.
-Aucun changement de gameplay dans cette lecture ; aucun push.
+Aucun push sans accord de Kenny.
+
+**P06 — profils de sites :** [architecture et audits](docs/P06_SITE_PROFILES_2026-10-11.md).
+Mode par défaut P06 : champ régulier de 25/36 piliers au départ, alternant avec
+les ensembles ramifiés à distance. Passage bas 2,2 m vers plafond 4,8 m,
+trames de 4/5 m, trois sorties avec dégagement du joueur. Aucun système d'arches.
+Quatorze suites natives passent ; 72 sites, dont 30 champs, audités sur huit graines.
+Oracle SpanMap étendu à 2 764 800 colonnes et reset GPU P05 vers P06 contrôlé.
+Quatre captures natives avec bloom inspectées ; Web local : 99 bakes, zéro
+attente, console propre. Les champs restent bornés à
+27,5 m : P07 doit étendre les réservations à plusieurs chunks. Aucun push.
 
 **P05 — réservations distribuées :** [architecture et validation](docs/P05_DISTRIBUTED_RESERVATIONS_2026-10-11.md).
-Nouvelle composition par défaut : un site de six modules par secteur de
+Composition P05 conservée explicitement : un site de six modules par secteur de
 80 × 80 m ; placement et variantes par graine, cache élagué, IDs de néons
 uniques et extinction conservée au retour. Trois sorties vers la circulation
 classique. Métadonnées de plafond GPU distribuées dans les 49 slots de streaming,

@@ -387,7 +387,7 @@ func _read_options() -> Dictionary:
 
 func new_exploration(seed := -1) -> void:
 	var value := seed if seed >= 0 else LevelWorld.fresh_seed(world.seed if world else -1)
-	world = LevelWorld.new(value, str(options.get("composition", "P05")))
+	world = LevelWorld.new(value, str(options.get("composition", "P06")))
 	world.geo_test = options.has("geotest")
 	player.flashlight.enabled = options.get("flashlight", "0") == "1"
 	flashlight_projector.configure(world, player, streamer.materials)

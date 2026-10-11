@@ -16,52 +16,28 @@ La page Wikidot fournie par Kenny fait référence pour le lore de ce prototype.
 - Réorganisation hors observation, isolement entre personnes, entités non confirmées.
 - Sortie décrite : traverser une paroi clignotante vers le Level 1.
 
-## État du prototype, constat technique
+## Décision de Kenny et ordre de développement
 
-P05 distribue des ensembles de six modules. Les piliers existent mais ne forment
-pas encore de vastes champs. Les zones faiblement éclairées sont actuellement
-issues de la densité des néons : elles ne constituent pas un profil complet
-d'architecture et d'acoustique. Les arches, fosses et pièces rouges ne sont
-pas implémentées. Les volumes restent alignés sur les axes, le sol jouable
-est plat et les caches reconstruisent exactement la même géométrie.
+Les arches sont exclues du développement. Le plan exécutable fait référence
+à [la feuille de route consolidée](DEVELOPMENT_ROADMAP.md), qui remplace les
+propositions initiales. Les fréquences et dimensions choisies sont des paramètres
+de jeu à éprouver ; elles ne sont pas imposées par le wiki.
 
-## Plan proposé pour nos prochaines étapes
+P06 introduit un champ de piliers régulier borné à une réservation P05, alternant
+avec les ensembles de pièces resserrées. P07 doit étendre les réservations sur
+plusieurs chunks avant de prétendre représenter les grandes étendues décrites.
+Viennent ensuite les zones noires, les fosses, les pièces rouges et la
+réorganisation hors observation, chacune avec ses propres audits.
 
-Les choix ci-dessous sont des décisions de jeu à valider par essais, pas des
-fréquences, dimensions ou probabilités imposées par le wiki.
+## État et limites techniques
 
-1. Remplacer le mélange systématique des six modules par des profils de sites.
-   Commencer par deux essais contrôlés : galerie à arches et champ de piliers.
-   Donner à chaque profil une silhouette, un rythme, des vues QA et un rapport
-   de génération distincts. Mesurer la répétition sur plusieurs graines.
-   Élargir ensuite les réservations au-delà d'un seul chunk pour les grands champs.
-
-2. Pour les arches, développer une géométrie de voûte réelle. Le système de
-   volumes/collisions/ombres doit décrire cette courbure de manière cohérente ;
-   un mesh visuel au-dessus d'une collision rectangulaire ne suffit pas.
-   Tester le dégagement joueur et la lampe à travers chaque ouverture.
-   Conserver ces lieux comme repères persistants dans notre future simulation.
-
-3. Ajouter un profil de zone noire avec contrôle explicite de ses sources
-   lumineuses et sonores, en conservant la propagation physique venant du bord
-   éclairé et de la lampe. La survie dans l'obscurité doit rester lisible.
-   Les matières et reliefs éventuels feront l'objet d'un audit séparé.
-
-4. Introduire les fosses après un véritable support de surfaces de sol absentes,
-   parois verticales, gravité, collisions et chute. Une texture noire sur un sol
-   plein serait un faux danger. Réserver des chemins de contournement et tester
-   leurs largeurs ; ne pas inventer une destination certaine à la chute.
-
-5. Prototyper les pièces rouges dans une scène isolée avant distribution :
-   définir les avertissements visibles, le seuil d'engagement et l'enfermement.
-   Ne pas ajouter un piège fatal aléatoire au P05 existant sans ces règles.
-
-6. Traiter la réorganisation comme une couche d'état au-dessus de la graine :
-   graine de base + états/révisions des sites. Ne jamais la confondre avec
-   l'éviction du cache ni modifier un espace observé ou occupé. Tester d'abord
-   une transformation contrôlée hors champ, collisions et bakes compris.
-   L'identité persistante actuelle reste une garantie technique utile ; elle
-   n'est pas encore une simulation complète du phénomène décrit.
+Les volumes actuels sont alignés sur les axes. Le sol est plat et la graine
+reconstruit exactement la même géométrie après éviction. Les endroits sombres
+issus de la densité des néons ne sont pas encore un profil complet de zone noire.
+Les fosses exigent du sol absent, une gravité et une chute réelles ; les pièces
+rouges nécessitent un pilote lisible avant distribution. La réorganisation sera
+une couche d'état distincte du cache, sans modification des lieux observés ou
+occupés, avec invalidation cohérente des collisions et de la lumière.
 
 ## Conséquences pour la vision générale
 
@@ -71,6 +47,4 @@ La survie, l'orientation et l'architecture peuvent porter sa tension.
 Garder séparés les rendus de référence artistiques et les règles de cette page :
 Kane Pixels nous aide visuellement, mais n'est pas notre source Wikidot.
 
-Le prochain travail conseillé porte sur les profils architecturaux et un pilote
-d'arches, avant les dangers irréversibles. Cette lecture ne modifie pas le jeu.
-Aucun push ni déploiement.
+Aucun push ni déploiement sans accord de Kenny.
