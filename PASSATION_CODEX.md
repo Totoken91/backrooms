@@ -1,5 +1,12 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**Débruitage sur GPU :** [pipeline et mesures](docs/GPU_DENOISE_PIPELINE_2026-10-11.md).
+Deux viewports réutilisés ; une seule relecture finale par passe. Seed99 : 198
+vers 99 relectures, coût CPU cumulé observé 236 vers 52 ms. Quinze captures
+identiques pixel par pixel ; test dédié du pipeline et transport GPU passés.
+Web local validé : 99 passes, zéro attente, console propre. Les pics globaux
+restent présents. Aucun push ni déploiement.
+
 **Dernière itération :** [essai vertical indirect et optimisation](docs/INDIRECT_HEIGHT_EXPERIMENT_2026-10-11.md).
 Trois hauteurs testées puis écartées : ratios premier rebond dim3 0,93 vers 0,89,
 dim0 0,88 vers 0,85, avec plus de mémoire. Patch conservé hors dépôt. Le jeu garde
@@ -108,7 +115,8 @@ modulo 7, `slot_chunk` dit quel chunk occupe un emplacement).
 
 - `scripts/game/light_baker.gd` — `LightBaker` : passe directe (5 tuiles),
   deux passes de rebond (« gather »), débruitage (`bake_filter`), cache des
-  `SpanMap`. Radiance des néons = 12 (convention Cycles : force d'émission =
+  `SpanMap`. Deux cibles GPU brut/filtré, une relecture finale par passe.
+  Radiance des néons = 12 (convention Cycles : force d'émission =
   radiance). `higher_bounces = 1.7` (facteur des rebonds au-delà du 2ᵉ).
 - `scripts/game/world_streamer.gd` — chargement des chunks, ordre des calculs
   (direct → 1ʳᵉ passe → 2ᵉ passe ; `relight` après une extinction), envoi des

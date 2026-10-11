@@ -2,7 +2,7 @@ class_name LightBaker
 extends Node
 ## GPU light bake of a chunk in two passes (shaders/bake_direct.gdshader,
 ## shaders/bake_indirect.gdshader), rendered in an off-screen viewport and
-## read back as images: three tiles of 160 × 160 texels (0.25 m) per pass.
+## read back only at the end: five tiles of 160 × 160 texels (0.25 m).
 ## One render per frame; callers await the returned coroutine.
 
 const RES := 160
@@ -36,6 +36,8 @@ var timings := {}
 
 var _viewport: SubViewport
 var _rect: ColorRect
+var _filter_viewport: SubViewport
+var _filter_rect: ColorRect
 var _direct := ShaderMaterial.new()
 var _indirect := ShaderMaterial.new()
 var _filter := ShaderMaterial.new()
@@ -74,17 +76,25 @@ func _remember(coord: Vector2i, map: SpanMap) -> void:
 		_span_textures.erase(old)
 
 
+func _create_target() -> SubViewport:
+	var target := SubViewport.new()
+	target.size = Vector2i(RES * TILES, RES)
+	target.disable_3d = true
+	target.transparent_bg = true
+	target.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	target.render_target_clear_mode = SubViewport.CLEAR_MODE_NEVER
+	add_child(target)
+	var rect := ColorRect.new()
+	rect.size = Vector2(RES * TILES, RES)
+	target.add_child(rect)
+	return target
+
+
 func _ready() -> void:
-	_viewport = SubViewport.new()
-	_viewport.size = Vector2i(RES * TILES, RES)
-	_viewport.disable_3d = true
-	_viewport.transparent_bg = true
-	_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
-	_viewport.render_target_clear_mode = SubViewport.CLEAR_MODE_NEVER
-	add_child(_viewport)
-	_rect = ColorRect.new()
-	_rect.size = Vector2(RES * TILES, RES)
-	_viewport.add_child(_rect)
+	_viewport = _create_target()
+	_rect = _viewport.get_child(0)
+	_filter_viewport = _create_target()
+	_filter_rect = _filter_viewport.get_child(0)
 	_direct.shader = preload("res://shaders/bake_direct.gdshader")
 	_indirect.shader = preload("res://shaders/bake_indirect.gdshader")
 	_filter.shader = preload("res://shaders/bake_filter.gdshader")
@@ -149,15 +159,23 @@ func _render(m: ShaderMaterial, denoise := 0) -> Array:
 		await get_tree().process_frame
 	busy = true
 	var started := Time.get_ticks_usec()
-	var img := await _draw(m, BANDS)
+	await _draw(m, BANDS)
+	var result := _viewport
 	if denoise > 0:
 		for key in ["span_a", "span_b", "occ_origin", "occ_size"]:
 			_filter.set_shader_parameter(key, m.get_shader_parameter(key))
-		_filter.set_shader_parameter("src", ImageTexture.create_from_image(img))
+		# Separate targets avoid sampling the texture currently being drawn.
+		# Keep the raw bake on the GPU: no intermediate readback or re-upload.
+		_filter.set_shader_parameter("src", _viewport.get_texture())
 		_filter.set_shader_parameter("radius", denoise)
 		_filter.set_shader_parameter("sigma", denoise * 0.6)
 		_filter.set_shader_parameter("active_tiles", 4.0 if m == _direct else 3.0)
-		img = await _draw(_filter, BANDS)
+		await _draw(_filter, BANDS)
+		result = _filter_viewport
+	var read_started := Time.get_ticks_usec()
+	var img := result.get_texture().get_image()
+	img.convert(Image.FORMAT_RGBA8)
+	record_time("readback_cpu", read_started)
 	var tiles := []
 	for t in TILES:
 		tiles.append(img.get_region(Rect2i(t * RES, 0, RES, RES)))
@@ -167,31 +185,25 @@ func _render(m: ShaderMaterial, denoise := 0) -> Array:
 	return tiles
 
 
-## Draws `m` over the tiles in `bands` horizontal bands, one per frame,
-## so a heavy pass costs the frame a fraction of its GPU time (the viewport
-## keeps its content between bands), then reads the result back.
-func _draw(m: ShaderMaterial, bands := 1) -> Image:
-	_rect.material = m
+## Draws horizontal bands into the raw or filter target, one per frame.
+## The caller reads back only the final target after the complete pass.
+func _draw(m: ShaderMaterial, bands := 1) -> void:
+	var target := _filter_viewport if m == _filter else _viewport
+	var rect := _filter_rect if m == _filter else _rect
+	rect.material = m
 	var rows := RES / bands
 	for k in bands:
 		var started := Time.get_ticks_usec()
-		_rect.position.y = k * rows
-		_rect.size.y = rows
+		rect.position.y = k * rows
+		rect.size.y = rows
 		m.set_shader_parameter("band_y0", float(k * rows))
 		m.set_shader_parameter("band_rows", float(rows))
-		# One draw per band (verified: the material and uniforms set above reach
-		# this draw; no stale band).
-		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+		target.render_target_update_mode = SubViewport.UPDATE_ONCE
 		await RenderingServer.frame_post_draw
 		record_time("filter_band_wait" if m == _filter else "light_band_wait", started)
-	var read_started := Time.get_ticks_usec()
-	var img := _viewport.get_texture().get_image()
-	img.convert(Image.FORMAT_RGBA8)
-	record_time("readback_cpu", read_started)
-	return img
 
 
-## Pass 1. Returns 3 images (see bake_direct.gdshader for the channels).
+## Pass 1. Returns 5 images (see bake_direct.gdshader for the channels).
 func direct(world: LevelWorld, coord: Vector2i) -> Array:
 	var origin := chunk_origin(coord)
 	var fixtures := []
