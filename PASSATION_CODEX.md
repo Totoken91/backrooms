@@ -1,5 +1,10 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**Captures visuelles :** ne pas passer `raw` pour présenter le jeu. Ce mode
+de mesure désactive le bloom, le tonemap et l’exposition artistique. Le bloom
+reste actif par défaut ; confirmé sur `godot-s99-pillars-p01-bloom-default.png`
+hors dépôt. Réserver `raw` aux comparaisons quantitatives.
+
 **P01 : enfilades et salle à piliers jouables :** [plan, architecture et validation](docs/P01_PROMENADE_2026-10-11.md).
 Nouveau départ : passage bas → seuils décalés → salle à neuf piliers, deux
 liaisons formant une boucle et trois sorties vers le labyrinthe. Réservation
