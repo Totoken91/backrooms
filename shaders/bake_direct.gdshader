@@ -54,7 +54,7 @@ void fragment() {
 	// it: it rises from the floor, peaks and falls under the ceiling.
 	vec2 gap = column_gap(p);
 	vec3 hs = wall_heights(gap);
-	if (occupied(p) < 0.5) {
+	if (tile < 3.5 && occupied(p) < 0.5) {
 		float e[13];
 		for (int k = 0; k < 13; k++) e[k] = 0.0;
 		vec3 eg = vec3(0.0);

@@ -24,6 +24,8 @@ var baker: LightBaker
 var center := Vector2i(1 << 30, 0)
 var last_build_ms := 0.0
 var max_build_ms := 0.0
+## Streaming slices only; warm() deliberately builds synchronously at startup.
+var max_build_slice_ms := 0.0
 ## Changes whenever the set of loaded chunks changes.
 var generation := 0
 ## Baked light on the GPU (shaders/light_maps.gdshaderinc): MAPS layers per
@@ -184,6 +186,8 @@ func _build(k: Vector2i, slice_ms := INF) -> void:
 	_upload(chunk)
 	last_build_ms = chunk.build_ms
 	max_build_ms = maxf(max_build_ms, chunk.build_ms)
+	if not is_inf(slice_ms):
+		max_build_slice_ms = maxf(max_build_slice_ms, chunk.max_slice_ms)
 
 
 ## Order: the nearest pending job, direct light first, then the first gather

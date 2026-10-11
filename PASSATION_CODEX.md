@@ -9,6 +9,12 @@ conversions du rendu et une passe d'ajustement neutre l'écrasaient à l'afficha
 Filtrage entre chunks corrigé pour lumière et occlusion ; MSAA 4× activé pour
 les arêtes fines. Toujours aucun push sans accord de Kenny.
 
+**Fluidité du calcul :** [profil CPU et préparation répartie](docs/STREAMING_DIAGNOSTIC_2026-10-11.md).
+Raster des obstacles optimisé et réparti sur les frames ; cache isolé par monde,
+textures réutilisées, débruitage en bandes. Rendu avant/après identique sur les
+deux vues contrôlées. Mesure directe fraîche dim3 : 1,03 de Cycles ; premier
+rebond toujours à 0,79. Les pics GPU/relecture restent à traiter.
+
 Document de reprise pour Codex. État au commit qui ajoute ce fichier (branche
 `main`). Tout ce qui suit a été vérifié en local ; les chiffres viennent des
 outils de mesure décrits plus bas.

@@ -23,6 +23,8 @@ var _was_captured := false
 var _panel_generation := -1
 var _capturing := false
 var _frame_times := PackedFloat32Array()
+var _bake_frame_times: Array[float] = []
+var _profile_frame_stamp := 0
 var _session := 0.0
 ## Light view (F7): normal, direct only, indirect only, albedo.
 var _light_view := 0
@@ -192,6 +194,14 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 		if options.has("dump"):
 			_dump(folder, n)
 		print("capture ", path, " fps ", Engine.get_frames_per_second(), " bakes ", streamer.pending_bakes(), " build max ", streamer.max_build_ms, " phases ", streamer.chunks.get(Vector2i(0, 0)).phases if streamer.chunks.has(Vector2i(0, 0)) else {}, " chunks ", streamer.chunks.size())
+		if options.has("profile"):
+			var frames := _bake_frame_times.duplicate()
+			frames.sort()
+			var data := {"baker": streamer.baker.timings, "bake_frames": frames.size(), "build_slice_cpu_max_ms": streamer.max_build_slice_ms}
+			if not frames.is_empty():
+				data["frame_ms"] = {"p50": frames[frames.size() / 2], "p95": frames[int(frames.size() * 0.95)], "max": frames[-1]}
+			var f := FileAccess.open(path.get_basename() + "-profile.json", FileAccess.WRITE)
+			f.store_string(JSON.stringify(data, "\t"))
 	if options.has("hold"):
 		await get_tree().create_timer(float(options.hold)).timeout
 	get_tree().quit()
@@ -282,6 +292,11 @@ func _process(delta: float) -> void:
 	if running:
 		_session += delta
 	_frame_times.append(delta * 1000.0)
+	if options.has("profile"):
+		var stamp := Time.get_ticks_usec()
+		if streamer.pending_bakes() > 0 and _profile_frame_stamp > 0:
+			_bake_frame_times.append((stamp - _profile_frame_stamp) / 1000.0)
+		_profile_frame_stamp = stamp
 	if _frame_times.size() > 240:
 		_frame_times.remove_at(0)
 	_ui.skate.visible = player.skating and not debug

@@ -27,6 +27,7 @@ var bounce := []
 ## gather; the current light stays shown until each new pass is ready.
 var relight := 0
 var build_ms := 0.0
+var max_slice_ms := 0.0
 var built := false
 var phases := {}
 var bake_ms := 0.0
@@ -36,7 +37,7 @@ var _tools := {}
 
 
 ## Builds the chunk; with a finite slice_ms the work is spread over frames
-## (one row of cells at a time) and `built` turns true at the end.
+## (budget checked after each cell) and `built` turns true at the end.
 func setup(world: LevelWorld, p_coord: Vector2i, materials: Dictionary, panel_mesh: Mesh, slice_ms := INF) -> void:
 	_world = world
 	coord = p_coord
@@ -71,15 +72,16 @@ func setup(world: LevelWorld, p_coord: Vector2i, materials: Dictionary, panel_me
 					covered += maxf(0.0, minf(b.x1, (x + 1) * CELL) - maxf(b.x0, x * CELL)) * maxf(0.0, minf(b.z1, (z + 1) * CELL) - maxf(b.z0, z * CELL))
 			for f in _world.cell_fixtures(x, z):
 				fixtures.append(f)
-			if covered >= CELL * CELL - 1e-6:
-				continue
-			_emit_floor_and_ceiling(x, z)
-		if Time.get_ticks_usec() - slice_start > slice_ms * 1000.0:
-			busy += (Time.get_ticks_usec() - slice_start) / 1000.0
-			await get_tree().process_frame
-			if not is_inside_tree():
-				return
-			slice_start = Time.get_ticks_usec()
+			if covered < CELL * CELL - 1e-6:
+				_emit_floor_and_ceiling(x, z)
+			if Time.get_ticks_usec() - slice_start > slice_ms * 1000.0:
+				var elapsed := (Time.get_ticks_usec() - slice_start) / 1000.0
+				busy += elapsed
+				max_slice_ms = maxf(max_slice_ms, elapsed)
+				await get_tree().process_frame
+				if not is_inside_tree():
+					return
+				slice_start = Time.get_ticks_usec()
 	phases.geometry = busy + (Time.get_ticks_usec() - slice_start) / 1000.0
 	_add_colliders(body, solids)
 	phases.collision = busy + (Time.get_ticks_usec() - slice_start) / 1000.0 - phases.geometry
@@ -105,6 +107,7 @@ func setup(world: LevelWorld, p_coord: Vector2i, materials: Dictionary, panel_me
 	add_child(instance)
 	_tools.clear()
 	_build_panels(panel_mesh)
+	max_slice_ms = maxf(max_slice_ms, (Time.get_ticks_usec() - slice_start) / 1000.0)
 	build_ms = busy + (Time.get_ticks_usec() - slice_start) / 1000.0
 	built = true
 

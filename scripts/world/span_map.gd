@@ -21,51 +21,95 @@ var texel: float
 var size: int
 ## Columns whose spans had to be merged to fit MAX_SPANS (merged conservatively).
 var overflow := 0
+var max_slice_ms := 0.0
 
 
 ## Spans of the square of `size` × `size` columns whose corner is `p_origin`
-## (world metres). Cells without boxes and cells filled by one full box are
-## written as rectangles; the others column by column.
+## (world metres). Rasterise constant-span rectangles between projected box
+## edges, with exactly the same centre tests as the per-column representation.
 static func build(world: LevelWorld, p_origin: Vector2, p_size: int, p_texel: float) -> SpanMap:
+	var m := _create(p_origin, p_size, p_texel)
+	for c in m._cells():
+		m._raster_cell(world, c.x, c.y)
+	return m
+
+
+## Runtime preparation yields between cells; no frame pays for a whole map.
+static func build_sliced(world: LevelWorld, p_origin: Vector2, p_size: int, p_texel: float, tree: SceneTree, slice_ms := 3.0) -> SpanMap:
+	var m := _create(p_origin, p_size, p_texel)
+	var started := Time.get_ticks_usec()
+	for c in m._cells():
+		m._raster_cell(world, c.x, c.y)
+		if Time.get_ticks_usec() - started >= slice_ms * 1000.0:
+			m.max_slice_ms = maxf(m.max_slice_ms, (Time.get_ticks_usec() - started) / 1000.0)
+			await tree.process_frame
+			started = Time.get_ticks_usec()
+	m.max_slice_ms = maxf(m.max_slice_ms, (Time.get_ticks_usec() - started) / 1000.0)
+	return m
+
+
+static func _create(p_origin: Vector2, p_size: int, p_texel: float) -> SpanMap:
 	var m := SpanMap.new()
 	m.origin = p_origin
 	m.size = p_size
 	m.texel = p_texel
 	m.a = Image.create(p_size, p_size, false, Image.FORMAT_RGBAH)
 	m.b = Image.create(p_size, p_size, false, Image.FORMAT_RGBAH)
-	var cell := LevelWorld.CELL
-	var c0 := Vector2i((p_origin / cell).floor())
-	var c1 := Vector2i(((p_origin + Vector2(p_size, p_size) * p_texel) / cell).ceil())
-	var area := Rect2i(0, 0, p_size, p_size)
-	for cz in range(c0.y, c1.y):
-		for cx in range(c0.x, c1.x):
-			var lo := Vector2i(((Vector2(cx, cz) * cell - p_origin) / p_texel).round())
-			var hi := Vector2i(((Vector2(cx + 1, cz + 1) * cell - p_origin) / p_texel).round())
-			var rect := Rect2i(lo, hi - lo).intersection(area)
-			if rect.size.x <= 0 or rect.size.y <= 0:
-				continue
-			var fl := world.floor_height(cx, cz)
-			var ce := world.ceiling_height(cx, cz)
-			var boxes := world.cell_boxes(cx, cz)
-			var room := [[BELOW, fl], [ce, ABOVE]]
-			if boxes.is_empty():
-				m._fill(rect, room)
-				continue
-			if boxes.size() == 1:
-				var bx = boxes[0]
-				if bx.x0 <= cx * cell + 1e-6 and bx.z0 <= cz * cell + 1e-6 and bx.x1 >= (cx + 1) * cell - 1e-6 and bx.z1 >= (cz + 1) * cell - 1e-6 and bx.y0 <= fl + 1e-6 and bx.y1 >= ce - 1e-6:
-					m._fill(rect, [[BELOW, ABOVE]])
-					continue
-			for ty in range(rect.position.y, rect.end.y):
-				for tx in range(rect.position.x, rect.end.x):
-					var px := p_origin.x + (tx + 0.5) * p_texel
-					var pz := p_origin.y + (ty + 0.5) * p_texel
-					var spans := room.duplicate()
-					for bx in boxes:
-						if px > bx.x0 and px < bx.x1 and pz > bx.z0 and pz < bx.z1:
-							spans.append([bx.y0, bx.y1])
-					m._write(tx, ty, m._merge(spans))
 	return m
+
+
+func _cells() -> Array[Vector2i]:
+	var c0 := Vector2i((origin / LevelWorld.CELL).floor())
+	var c1 := Vector2i(((origin + Vector2(size, size) * texel) / LevelWorld.CELL).ceil())
+	var cells: Array[Vector2i] = []
+	for z in range(c0.y, c1.y):
+		for x in range(c0.x, c1.x):
+			cells.append(Vector2i(x, z))
+	return cells
+
+
+func _raster_cell(world: LevelWorld, cx: int, cz: int) -> void:
+	var cell := LevelWorld.CELL
+	var lo := Vector2i(((Vector2(cx, cz) * cell - origin) / texel).round())
+	var hi := Vector2i(((Vector2(cx + 1, cz + 1) * cell - origin) / texel).round())
+	var rect := Rect2i(lo, hi - lo).intersection(Rect2i(0, 0, size, size))
+	if not rect.has_area():
+		return
+	var fl := world.floor_height(cx, cz)
+	var ce := world.ceiling_height(cx, cz)
+	var boxes := world.cell_boxes(cx, cz)
+	var room := [[BELOW, fl], [ce, ABOVE]]
+	if boxes.is_empty():
+		_fill(rect, room)
+		return
+	# Axis-aligned boxes have constant spans between their projected edges.
+	# Partition there, rather than allocate/merge arrays for every column.
+	# Strict centre-in-box bounds match the original per-column raster exactly.
+	var xs := [rect.position.x, rect.end.x]
+	var zs := [rect.position.y, rect.end.y]
+	var projected := []
+	for bx in boxes:
+		var x0 := clampi(floori((bx.x0 - origin.x) / texel - 0.5) + 1, rect.position.x, rect.end.x)
+		var x1 := clampi(ceili((bx.x1 - origin.x) / texel - 0.5), rect.position.x, rect.end.x)
+		var z0 := clampi(floori((bx.z0 - origin.y) / texel - 0.5) + 1, rect.position.y, rect.end.y)
+		var z1 := clampi(ceili((bx.z1 - origin.y) / texel - 0.5), rect.position.y, rect.end.y)
+		if x1 <= x0 or z1 <= z0:
+			continue
+		projected.append([Rect2i(x0, z0, x1 - x0, z1 - z0), bx.y0, bx.y1])
+		for x in [x0, x1]:
+			if not xs.has(x): xs.append(x)
+		for z in [z0, z1]:
+			if not zs.has(z): zs.append(z)
+	xs.sort()
+	zs.sort()
+	for iz in zs.size() - 1:
+		for ix in xs.size() - 1:
+			var part := Rect2i(xs[ix], zs[iz], xs[ix + 1] - xs[ix], zs[iz + 1] - zs[iz])
+			var spans := room.duplicate()
+			for bx in projected:
+				if bx[0].has_point(part.position):
+					spans.append([bx[1], bx[2]])
+			_fill(part, _merge(spans))
 
 
 static func _merge(spans: Array) -> Array:
@@ -98,7 +142,9 @@ func _encode(spans: Array) -> Array[Color]:
 
 
 func _fill(rect: Rect2i, spans: Array) -> void:
+	var before := overflow
 	var c := _encode(spans)
+	overflow += (overflow - before) * (rect.get_area() - 1)
 	a.fill_rect(rect, c[0])
 	b.fill_rect(rect, c[1])
 
