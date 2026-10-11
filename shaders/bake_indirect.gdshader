@@ -102,6 +102,7 @@ void fragment() {
 		const int AZ = 16;
 		const int EL = 6;
 		float weight = 4.0 * PI / float(AZ * EL);
+		float cosine_weight = 0.0;
 		for (int e = 0; e < EL; e++) {
 			float cz = 1.0 - 2.0 * (float(e) + lift) / float(EL);   // stratified, uniform in cos
 			float sz = sqrt(1.0 - cz * cz);
@@ -114,6 +115,7 @@ void fragment() {
 				else if (length(wall_normal) > 0.0) facing = dot(dir.xz, wall_normal);
 				else facing = (abs(dir.x) + abs(dir.z)) * 0.25;   // mean over 4 walls
 				if (facing <= 0.0) continue;
+				cosine_weight += facing * weight;
 				// One column per step; in each, the height interval the ray covers
 				// is tested against the column's spans.
 				float dt = occ_texel / max(sz, 1e-3);
@@ -172,7 +174,12 @@ void fragment() {
 				total += radiance * facing * weight;
 			}
 		}
-		total *= boost;
+		// The exact cosine integral is PI for every unit receiver normal (and
+		// for an average of normals). Finite jittered sphere quadrature varies
+		// by up to 1/3 for floor/ceiling. Normalize the quadrature, including
+		// rays that miss or hit black surfaces, to preserve constant radiance.
+		// This is not a visibility-dependent gain: darkness remains darkness.
+		total *= boost * PI / max(cosine_weight, 1e-5);
 	}
 	COLOR = vec4(sqrt(clamp(total / i_max, 0.0, 1.0)), 1.0);
 }

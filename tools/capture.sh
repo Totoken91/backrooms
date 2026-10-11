@@ -3,10 +3,11 @@
 # first script or shader error, or after MAX_S seconds (default 240), and
 # prints the capture lines and errors.
 # Usage: tools/capture.sh [godot user args...]   e.g. seed=2 shots=entry out=...
+# Optional CAPTURE_LOG: full log path outside the public repo, kept after exit.
 GODOT=${GODOT:-"C:/Users/kenny/Documents/Codex/2026-10-09/files-mentioned-by-the-user-les/work/tools/godot-4.6/Godot_v4.6-stable_win64_console.exe"}
 MAX_S=${MAX_S:-240}
 RES=${RES:-720x540}
-LOG=$(mktemp)
+LOG=${CAPTURE_LOG:-$(mktemp)}
 if [ -n "$GODOT_SCRIPT" ]; then
   "$GODOT" --path . --position -4000,-4000 --resolution "$RES" --script "$GODOT_SCRIPT" -- "$@" > "$LOG" 2>&1 &
 else
@@ -30,5 +31,7 @@ fi
 kill $PID 2>/dev/null
 taskkill //F //FI "IMAGENAME eq Godot_v4.6-stable_win64.exe" //FI "WINDOWTITLE eq Hors Plan*" > /dev/null 2>&1
 grep -E "capture |switch off|PASS:|FAIL:|probe |SCRIPT ERROR|Parse Error|SHADER ERROR|ERROR: .*shader|at: " "$LOG" | sort -u | cut -c1-220 | head -30
-rm -f "$LOG"
+if [ -z "$CAPTURE_LOG" ]; then
+  rm -f "$LOG"
+fi
 exit $STATUS

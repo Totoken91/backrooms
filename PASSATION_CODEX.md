@@ -25,6 +25,10 @@ de Cycles ; dim0 : directe 0,82, rebond 0,80. Déficit encore ouvert. Captures
 Haut des murs mieux reconstruit ; dim3 directe 1,02, rebond 0,83 ; dim0
 0,82 / 0,81. Approximation moins précise très près des panneaux dans le test
 analytique ; déficit indirect encore ouvert. Travail local, aucun push.
+**Conservation du gather :** [test uniforme et quadrature normalisée](docs/GATHER_CONSERVATION_2026-10-11.md).
+Erreur de lumière uniforme ramenée de 24 à 1/255 encodé. Sur dim3, le rebond
+reste à 0,83 de Cycles : déficit principal encore ouvert. `CAPTURE_LOG` conserve
+le journal des captures, `profile` imprime leur progression. Aucun push.
 Document de reprise pour Codex. État au commit qui ajoute ce fichier (branche
 `main`). Tout ce qui suit a été vérifié en local ; les chiffres viennent des
 outils de mesure décrits plus bas.

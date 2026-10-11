@@ -175,6 +175,8 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 		while (streamer.pending_bakes() > 0 and waited < 4000) or waited < 90:
 			await get_tree().process_frame
 			waited += 1
+			if options.has("profile") and waited % 120 == 0:
+				print("capture progress ", n, " frames ", waited, " pending ", streamer.pending_bakes(), " fps ", Engine.get_frames_per_second())
 		# Development: off switches the nearest panel off, then waits for the relight.
 		if options.has("off"):
 			var lamp = lights.nearest(player.global_position - player.camera.global_transform.basis.z * 5.0, 4.0)

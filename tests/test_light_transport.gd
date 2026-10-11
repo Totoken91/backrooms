@@ -126,8 +126,9 @@ func run() -> void:
 	await check_chunk_seams()
 	await check_receiver_shadows()
 	await check_wall_profile()
+	await check_uniform_gather()
 	if failures == 0:
-		print("PASS: analytic wall profile and light transport — linear uniforms, dark blue, zero, greys, surface layers, bilinear floor, chunk edges/corners, negative coordinates, stale slots, energy interpolation, receiver shadows")
+		print("PASS: analytic wall profile and light transport — linear uniforms, dark blue, zero, greys, surface layers, bilinear floor, chunk edges/corners, negative coordinates, stale slots, energy interpolation, receiver shadows, uniform gather")
 	quit(0 if failures == 0 else 1)
 
 
@@ -220,6 +221,74 @@ func check_chunk_seams() -> void:
 func point_wall(r: float, y: float) -> float:
 	var d := maxf(3.19 - y, 0.0)
 	return 12.0 * (25.0 / 36.0) * r * d / pow(r * r + d * d, 2)
+
+
+func check_uniform_gather() -> void:
+	# A closed white room with the same outgoing radiance on every surface
+	# must return the same irradiance for every receiver and jitter pattern.
+	var vp := SubViewport.new()
+	vp.size = Vector2i(48, 16)
+	vp.disable_3d = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(vp)
+	var rect := ColorRect.new()
+	rect.size = Vector2(48, 16)
+	vp.add_child(rect)
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/bake_indirect.gdshader")
+	rect.material = mat
+	var a := Image.create(40, 40, false, Image.FORMAT_RGBAH)
+	a.fill(Color(-10, 0, 3.2, 100))
+	# Closed box surrounding receivers, all coordinates within slot zero.
+	for r in [Rect2i(0, 0, 2, 40), Rect2i(38, 0, 2, 40), Rect2i(0, 0, 40, 2), Rect2i(0, 38, 40, 2)]:
+		a.fill_rect(r, Color(-10, 100, -100, -100))
+	var b := Image.create(40, 40, false, Image.FORMAT_RGBAH)
+	b.fill(Color(-100, -100, -100, -100))
+	mat.set_shader_parameter("span_a", ImageTexture.create_from_image(a))
+	mat.set_shader_parameter("span_b", ImageTexture.create_from_image(b))
+	mat.set_shader_parameter("occ_size", Vector2(40, 40))
+	mat.set_shader_parameter("res", 16.0)
+	mat.set_shader_parameter("band_rows", 16.0)
+	mat.set_shader_parameter("use_bounce", 1.0)
+	mat.set_shader_parameter("wall_albedo", Vector3.ONE)
+	mat.set_shader_parameter("floor_albedo", Vector3.ONE)
+	mat.set_shader_parameter("ceiling_albedo", Vector3.ONE)
+	var layers: Array[Image] = []
+	for i in 49 * 11:
+		var im := Image.create(2, 2, false, Image.FORMAT_RGBA8)
+		im.fill(Color(0.5, 0.5, 0.5, 0.5) if i >= 5 and i <= 7 else Color(0, 0, 0, 0))
+		layers.append(im)
+	var maps := Texture2DArray.new()
+	maps.create_from_images(layers)
+	mat.set_shader_parameter("light_maps", maps)
+	var slots := PackedVector2Array()
+	slots.resize(49)
+	slots.fill(Vector2(1e6, 1e6))
+	slots[0] = Vector2.ZERO
+	mat.set_shader_parameter("slot_chunk", slots)
+	for frame in 3:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var shot := vp.get_texture().get_image()
+	var worst := 0.0
+	for tile in 3:
+		for y in range(2, 14):
+			for x in range(2, 14):
+				worst = maxf(worst, absf(shot.get_pixel(tile * 16 + x, y).r - 128.0 / 255.0))
+	print("probe uniform gather samples ", shot.get_pixel(8, 8), " / ", shot.get_pixel(24, 8), " / ", shot.get_pixel(40, 8))
+	print("probe uniform gather max encoded error ", worst)
+	if worst > 2.0 / 255.0:
+		failures += 1
+		printerr("FAIL: uniform radiance must conserve irradiance: ", worst)
+	# A quadrature normalization must not invent radiance on missed/black rays.
+	mat.set_shader_parameter("use_bounce", 0.0)
+	for frame in 2:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	shot = vp.get_texture().get_image()
+	for tile in 3:
+		check_color(shot.get_pixel(tile * 16 + 8, 8), Color.BLACK, "black gather tile %d" % tile)
+	vp.queue_free()
 
 
 func check_wall_profile() -> void:
