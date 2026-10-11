@@ -8,7 +8,12 @@ GODOT=${GODOT:-"C:/Users/kenny/Documents/Codex/2026-10-09/files-mentioned-by-the
 MAX_S=${MAX_S:-240}
 RES=${RES:-720x540}
 LOG=${CAPTURE_LOG:-$(mktemp)}
-if [ -n "$GODOT_SCRIPT" ]; then
+: > "$LOG"
+if [ "$GODOT_PACKAGED" = "1" ]; then
+  # Release templates reject --path; load the sibling PCK instead. The GUI
+  # executable needs an explicit logfile for the same error watchdog.
+  "$GODOT" --position -4000,-4000 --resolution "$RES" --log-file "$LOG" -- "$@" > /dev/null 2>&1 &
+elif [ -n "$GODOT_SCRIPT" ]; then
   "$GODOT" --path . --position -4000,-4000 --resolution "$RES" --script "$GODOT_SCRIPT" -- "$@" > "$LOG" 2>&1 &
 else
   "$GODOT" --path . --position -4000,-4000 --resolution "$RES" -- "$@" > "$LOG" 2>&1 &

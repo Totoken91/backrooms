@@ -3,6 +3,10 @@
 Mise à jour : 11 octobre 2026. Référence : LEVEL0_WIKIDOT_ALIGNMENT_2026-10-11.md.
 Les arches sont exclues à la demande de Kenny. Aucun push sans son accord.
 
+**Décision du 11 octobre : Le PC natif (Windows et Linux x64) devient la cible principale.**
+Vercel devient une vitrine avec téléchargement ; les exports Web automatiques
+sont suspendus. Voir [distribution native](NATIVE_DISTRIBUTION.md).
+
 ## Socle terminé, conservé et testé
 
 - Rendu propre, bloom, panneaux alignés ; mouvement libre et sprint.
@@ -23,7 +27,7 @@ ne pas présenter les quatre patches de lampe comme une GI complète.
 | Étape | Objet | Critère de fin | État |
 |---|---|---|---|
 | P06 | Profils architecturaux distincts | Champ de piliers reconnaissable, alternant avec les parcours resserrés ; connectivité et rendu contrôlés | Pilote validé — voir P06_SITE_PROFILES_2026-10-11.md |
-| P07 | Réservations multi-chunks | Champs beaucoup plus vastes sans joints de génération, collisions ni lumière cassés ; budgets mémoire vérifiés | Architecture validée ; optimisation Web à poursuivre |
+| P07 | Réservations multi-chunks | Champs beaucoup plus vastes sans joints de génération, collisions ni lumière cassés ; budgets mémoire vérifiés | Architecture validée ; priorité au natif |
 | P08 | Zones noires complètes | Profil spatial/acoustique et sources maîtrisées, transitions éclairées naturelles, lampe utile | À faire |
 | P09 | Fosses | Vrai sol absent, gravité et chute, volumes et ombres cohérents, chemins testés | À faire |
 | P10 | Pièces rouges | Pilote isolé, avertissements et seuil d'engagement définis, piège spatial contrôlé | À faire |
@@ -35,16 +39,17 @@ architecturale, pas à prétendre avoir déjà des étendues kilométriques.
 P07 utilise désormais un propriétaire partagé par quatre chunks et des volumes
 fragmentés sans faces internes. Voir P07_MULTI_CHUNK_FIELDS_2026-10-11.md.
 
-Avant P08 : profiler et optimiser le rendu Web des grands champs. Le contrôle
-P07 à 1280 × 720 est correct mais reste vers 26–33 FPS après bake ; le budget
-60 FPS n'est pas acquis. Isoler les coûts avant de modifier les shaders ou le
-streaming, conserver le bloom et les audits géométriques.
+L'optimisation Web est suspendue et ne bloque plus P08. Le dernier contrôle
+Web P07 à 1280 × 720 restait vers 26–33 FPS après bake. Poursuivre les mesures
+natives et la maîtrise du temps de préparation initial, conserver le bloom et
+les audits géométriques.
 
 ## Méthode à chaque étape
 
 Une étape = un comportement jouable, un document d'architecture, des audits
-ciblés indépendants, captures normales avec bloom et validation Web locale.
-Les images restent hors dépôt public. Utiliser tools/capture.sh pour les jobs
+ciblés indépendants, captures normales avec bloom et validation native.
+Les références et captures QA restent hors dépôt public ; seules les captures
+de gameplay sélectionnées pour la vitrine sont publiées. Utiliser tools/capture.sh pour les jobs
 natifs. Signaler les limites et conserver les étapes précédentes.
 Ne pas introduire tous les dangers et systèmes de survie dans le même patch.
 

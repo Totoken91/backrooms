@@ -1,4 +1,12 @@
-# Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
+# Passation — Hors Plan (Backrooms Level 0), Godot 4.6 natif
+
+**Direction PC native Windows / Linux (2026-10-11) :** Kenny a choisi de faire de Vercel
+une vitrine avec téléchargements Windows et Linux x64. Voir [distribution](docs/NATIVE_DISTRIBUTION.md).
+Les cibles principales sont désormais Windows et Linux x64 ; les exports Web automatiques
+sont suspendus. `site/` est la vitrine Vercel ; GitHub Releases héberge les ZIP
+natifs. L'ancien Web P07 reste archivé dans `build/web`. Ne pas réactiver le jeu
+dans le navigateur ni reprendre son optimisation sans demande. La priorité Web
+ci-dessous décrit l'état historique, remplacé par cette décision.
 
 **Alignement lore Level 0 :** [lecture Wikidot et plan](docs/LEVEL0_WIKIDOT_ALIGNMENT_2026-10-11.md).
 La page fournie par Kenny devient la référence de lore pour le prototype.
