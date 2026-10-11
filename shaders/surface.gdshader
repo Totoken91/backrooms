@@ -51,17 +51,7 @@ float noise(vec2 p) {
 	return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
 
-// The Compatibility renderer samples textures without sRGB decoding and reads
-// ALBEDO as sRGB (drivers/gles3/shaders/scene.glsl: SHADER_IS_SRGB, then
-// srgb_to_linear(albedo)). Light is computed in linear here, like Cycles, so
-// decode the textures and encode the result.
-vec3 to_linear(vec3 c) {
-	return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, lessThan(c, vec3(0.04045)));
-}
-
-vec3 to_srgb(vec3 c) {
-	return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, lessThan(c, vec3(0.0031308)));
-}
+#include "res://shaders/color_space.gdshaderinc"
 
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -105,7 +95,7 @@ void fragment() {
 		bounce = b * b * i_max;
 	} else if (world_normal.y < -0.5) {
 		direct = vec3(0.0);
-		vec3 b = light_map(10, at).rgb;
+		vec3 b = light_map(9, at).rgb;
 		bounce = b * b * i_max;
 	} else {
 		// Walls: irradiance for the facing axis at three heights.
@@ -114,7 +104,7 @@ void fragment() {
 		float h1 = axis == 0 ? d1.y : axis == 1 ? d1.z : axis == 2 ? d1.w : d2.x;
 		float h2 = axis == 0 ? d2.y : axis == 1 ? d2.z : axis == 2 ? d2.w : d3.x;
 		direct = vec3(wall_profile(h0, h1, h2, world_pos.y, gap));
-		vec3 b = light_map(9, at).rgb;
+		vec3 b = light_map(10, at).rgb;
 		bounce = b * b * i_max;
 	}
 	// Development (debug_view 10): the first gather alone (one bounce).
@@ -147,6 +137,6 @@ void fragment() {
 	float cos_v = clamp(dot(normalize(CAMERA_POSITION_WORLD - world_pos), world_normal), 0.0, 1.0);
 	float fresnel = 0.04 + (max(1.0 - roughness, 0.04) - 0.04) * pow(1.0 - cos_v, 5.0);
 	vec3 irradiance = direct * panel_color + bounce;
-	ALBEDO = to_srgb((color * (1.0 - fresnel) + fresnel) * irradiance * contact * light_scale / PI);
-	if (debug_view > 0.5) ALBEDO = debug_view < 1.5 ? vec3(fract(at / 40.0), 0.0) : debug_view < 2.5 ? d0.rgb / e_max : debug_view < 3.5 ? light_map(0, at).rgb : debug_view < 4.5 ? vec3(ao_map(at)) : debug_view < 5.5 ? to_srgb(vec3(0.18)) : debug_view < 6.5 ? to_srgb(color) : debug_view < 7.5 ? vec3(contact) : debug_view < 8.5 ? to_srgb(direct * panel_color / PI) : debug_view < 9.5 ? to_srgb(bounce / PI) : to_srgb(first_bounce / PI);
+	ALBEDO = compatibility_albedo((color * (1.0 - fresnel) + fresnel) * irradiance * contact * light_scale / PI);
+	if (debug_view > 0.5) ALBEDO = debug_view < 1.5 ? vec3(fract(at / 40.0), 0.0) : debug_view < 2.5 ? d0.rgb / e_max : debug_view < 3.5 ? light_map(0, at).rgb : debug_view < 4.5 ? vec3(ao_map(at)) : debug_view < 5.5 ? compatibility_albedo(vec3(0.18)) : debug_view < 6.5 ? compatibility_albedo(color) : debug_view < 7.5 ? vec3(contact) : debug_view < 8.5 ? compatibility_albedo(direct * panel_color / PI) : debug_view < 9.5 ? compatibility_albedo(bounce / PI) : compatibility_albedo(first_bounce / PI);
 }

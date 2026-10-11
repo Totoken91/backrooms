@@ -29,10 +29,13 @@ void fragment() {
 			vec2 q = (n + 0.5) * texel;
 			if (!inside && (occupied(q) > 0.5 || occupied((p + q) * 0.5) > 0.5)) continue;
 			float w = exp(-float(dx * dx + dy * dy) / (2.0 * sigma * sigma));
-			sum += texelFetch(src, ivec2(n + vec2(tile * res, 0.0)), 0) * w;
+			vec4 encoded = texelFetch(src, ivec2(n + vec2(tile * res, 0.0)), 0);
+			// Maps store sqrt(irradiance / range). Average energy, not its
+			// encoding: averaging square roots darkens noisy/occluded texels.
+			sum += encoded * encoded * w;
 			wsum += w;
 		}
 	}
 	// Tile 4 holds encoded heights: no blur.
-	COLOR = (wsum > 0.0 && tile < 3.5) ? sum / wsum : centre;
+	COLOR = (wsum > 0.0 && tile < 3.5) ? sqrt(sum / wsum) : centre;
 }

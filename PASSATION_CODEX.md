@@ -1,5 +1,10 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**Reprise du 11 octobre 2026 :** voir
+[le diagnostic et les corrections de lumière](docs/LIGHTING_DIAGNOSTIC_2026-10-11.md).
+La piste RGBA8 ci-dessous n'est pas la cause principale du bleu perdu : les
+conversions du rendu et une passe d'ajustement neutre l'écrasaient à l'affichage.
+
 Document de reprise pour Codex. État au commit qui ajoute ce fichier (branche
 `main`). Tout ce qui suit a été vérifié en local ; les chiffres viennent des
 outils de mesure décrits plus bas.

@@ -57,6 +57,9 @@ func _ready() -> void:
 		environment.environment.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 		environment.environment.tonemap_exposure = 1.0
 		environment.environment.glow_enabled = false
+		environment.environment.adjustment_enabled = false
+		for m in streamer.materials.values():
+			m.set_shader_parameter("raw_output", true)
 	if options.get("field") == "0":
 		for m in streamer.materials.values():
 			m.set_shader_parameter("field_strength", 0.0)
@@ -170,6 +173,8 @@ func _dump(folder: String, n: String) -> void:
 		chunk.direct[i].save_png(folder.path_join("dump-%s-direct%d.png" % [n, i]))
 	for i in chunk.bounce.size():
 		chunk.bounce[i].save_png(folder.path_join("dump-%s-bounce%d.png" % [n, i]))
+	for i in chunk.bounce1.size():
+		chunk.bounce1[i].save_png(folder.path_join("dump-%s-bounce1-%d.png" % [n, i]))
 	if chunk.ao:
 		chunk.ao.save_png(folder.path_join("dump-%s-ao.png" % n))
 	var spans := streamer.baker.spans(world, chunk.coord)
@@ -178,7 +183,7 @@ func _dump(folder: String, n: String) -> void:
 	for dist in [2.0, 4.0, 6.0, 8.0]:
 		var w: Vector3 = p + fwd * dist
 		var v := streamer.map_values(w)
-		var e := func(c: Color, k: float) -> String: return "%.2f/%.2f/%.2f/%.2f" % [c.r * c.r * k, c.g * c.g * k, c.b * c.b * k, c.a * c.a * k]
+		var e := func(c: Color, k: float) -> String: return "%.6f/%.6f/%.6f/%.6f" % [c.r * c.r * k, c.g * c.g * k, c.b * c.b * k, c.a * c.a * k]
 		print("at %.0fm " % dist, Vector2(w.x, w.z), " direct ", e.call(v[0], LightBaker.E_MAX), " | indirect floor ", e.call(v[8], LightBaker.I_MAX), " ceiling ", e.call(v[9], LightBaker.I_MAX), " walls ", e.call(v[10], LightBaker.I_MAX))
 
 
@@ -365,7 +370,9 @@ func _build_environment() -> void:
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	# No fog: Level 0 has no haze; distance is carried by light and geometry.
 	env.fog_enabled = false
-	env.adjustment_enabled = true
+	# Neutral adjustments still add a post-pass in Compatibility, including
+	# another approximate sRGB round trip that crushes dim colours.
+	env.adjustment_enabled = false
 	env.adjustment_saturation = 1.0
 	environment.environment = env
 
