@@ -33,6 +33,7 @@ var light := Color(0.2, 0.2, 0.2)
 @onready var head: Node3D = $Head
 @onready var camera: Camera3D = $Head/Camera3D
 
+var flashlight_bounce := Color.BLACK
 var flashlight: Node3D
 
 var _stride := 0.0
@@ -200,7 +201,7 @@ func _skate(delta: float, forward: float, direction: Vector3, boost: bool) -> vo
 
 
 func _process(delta: float) -> void:
-	if flashlight: flashlight.update_light(light, delta, active and speed > 0.1)
+	if flashlight: flashlight.update_light(light + flashlight_bounce, delta, active and speed > 0.1)
 	var moving := active and Vector2(velocity.x, velocity.z).length() > 0.1
 	var target := sin(_walked / STRIDE * TAU) * 0.012 if moving and not skating else 0.0
 	_bob = lerpf(_bob, target, 1.0 - exp(-delta * 18.0))

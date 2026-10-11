@@ -173,3 +173,46 @@ func solid(x: float, y: float, z: float) -> bool:
 		if (y > c.r and y < c.g) or (y > c.b and y < c.a):
 			return true
 	return false
+
+## CPU counterpart of the projector DDA, used for a handful of bounce probes.
+## No GPU readback; slabs include the floor and ceiling as well as walls.
+func trace_ray(start: Vector3, ray: Vector3, limit: float) -> Dictionary:
+	var c := Vector2i(floori((start.x-origin.x)/texel),floori((start.z-origin.y)/texel))
+	var sx := 1 if ray.x >= 0 else -1
+	var sz := 1 if ray.z >= 0 else -1
+	var nx := (origin.x+(c.x+(1 if sx > 0 else 0))*texel-start.x)/ray.x if absf(ray.x)>1e-6 else INF
+	var nz := (origin.y+(c.y+(1 if sz > 0 else 0))*texel-start.z)/ray.z if absf(ray.z)>1e-6 else INF
+	var dx := absf(texel/ray.x) if absf(ray.x)>1e-6 else INF
+	var dz := absf(texel/ray.z) if absf(ray.z)>1e-6 else INF
+	var t := 0.0
+	var entered := -ray
+	for step in 256:
+		if c.x < 0 or c.y < 0 or c.x >= size or c.y >= size: return {}
+		var end := minf(limit,minf(nx,nz))
+		var ca := a.get_pixel(c.x,c.y)
+		var cb := b.get_pixel(c.x,c.y)
+		var closest := INF
+		var normal := entered
+		for slab in [Vector2(ca.r,ca.g),Vector2(ca.b,ca.a),Vector2(cb.r,cb.g),Vector2(cb.b,cb.a)]:
+			if slab.x < -50 and slab.y < -50: continue
+			if absf(ray.y) < 1e-6:
+				if start.y > slab.x and start.y < slab.y: closest = t
+			else:
+				var lo: float = (slab.x-start.y)/ray.y
+				var hi: float = (slab.y-start.y)/ray.y
+				var entry := maxf(t,minf(lo,hi))
+				if entry <= minf(end,maxf(lo,hi)) and entry < closest:
+					closest = maxf(0,entry)
+					normal = (Vector3.DOWN if ray.y > 0 else Vector3.UP) if entry > t+1e-6 else entered
+		if closest < INF: return {"distance":closest,"position":start+ray*closest,"normal":normal}
+		if end >= limit: return {}
+		t = end
+		if nx <= nz:
+			c.x += sx
+			nx += dx
+			entered = Vector3(-sx,0,0)
+		else:
+			c.y += sz
+			nz += dz
+			entered = Vector3(0,0,-sz)
+	return {}

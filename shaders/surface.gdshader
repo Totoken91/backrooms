@@ -17,6 +17,7 @@ uniform bool wall_damp = false;
 #include "res://shaders/gap.gdshaderinc"
 #include "res://shaders/light_maps.gdshaderinc"
 #include "res://shaders/structural_room.gdshaderinc"
+#include "res://shaders/wall_surface.gdshaderinc"
 uniform vec3 panel_color = vec3(1.0, 0.97, 0.9);
 uniform float e_max = 6.0;
 uniform float i_max = 2.0;
@@ -102,10 +103,7 @@ void fragment() {
 	} else {
 		// Walls: irradiance for the facing axis at three heights.
 		int axis = world_normal.x > 0.5 ? 0 : world_normal.x < -0.5 ? 1 : world_normal.z > 0.5 ? 2 : 3;
-		float h0 = axis == 0 ? d0.y : axis == 1 ? d0.z : axis == 2 ? d0.w : d1.x;
-		float h1 = axis == 0 ? d1.y : axis == 1 ? d1.z : axis == 2 ? d1.w : d2.x;
-		float h2 = axis == 0 ? d2.y : axis == 1 ? d2.z : axis == 2 ? d2.w : d3.x;
-		direct = vec3(wall_profile(h0, h1, h2, world_pos.y, gap, structural_ceiling(at, ceiling_height) - 0.01));
+		direct = vec3(wall_surface_light(at, axis, world_pos.y, e_max, ceiling_height));
 		vec3 b = light_map(10, at).rgb;
 		bounce = b * b * i_max;
 	}
@@ -138,7 +136,7 @@ void fragment() {
 	// reflected light is taken as the incident irradiance (rough surfaces).
 	float cos_v = clamp(dot(normalize(CAMERA_POSITION_WORLD - world_pos), world_normal), 0.0, 1.0);
 	float fresnel = 0.04 + (max(1.0 - roughness, 0.04) - 0.04) * pow(1.0 - cos_v, 5.0);
-	vec3 irradiance = direct * panel_color + bounce + flashlight_irradiance(world_pos, world_normal);
+	vec3 irradiance = direct * panel_color + bounce + flashlight_irradiance(world_pos, world_normal) + flashlight_indirect(world_pos, world_normal);
 	ALBEDO = compatibility_albedo((color * (1.0 - fresnel) + fresnel) * irradiance * contact * light_scale / PI);
 	if (debug_view > 0.5) ALBEDO = debug_view < 1.5 ? vec3(fract(at / 40.0), 0.0) : debug_view < 2.5 ? d0.rgb / e_max : debug_view < 3.5 ? light_map(0, at).rgb : debug_view < 4.5 ? vec3(ao_map(at)) : debug_view < 5.5 ? compatibility_albedo(vec3(0.18)) : debug_view < 6.5 ? compatibility_albedo(color) : debug_view < 7.5 ? vec3(contact) : debug_view < 8.5 ? compatibility_albedo(direct * panel_color / PI) : debug_view < 9.5 ? compatibility_albedo(bounce / PI) : compatibility_albedo(first_bounce / PI);
 }

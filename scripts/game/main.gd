@@ -306,19 +306,21 @@ func _benchmark_flashlight(folder := "") -> void:
 		player.flashlight.enabled = enabled
 		var times: Array[float] = []
 		var updates := flashlight_projector.shadow_updates
+		var bounce_updates := flashlight_projector.bounce_updates
 		for frame in 210:
 			player.head.rotation = saved_rotation + Vector3(0.025 * sin(frame * 0.04), 0.08 * sin(frame * 0.03), 0.0)
 			var stamp := Time.get_ticks_usec()
 			await get_tree().process_frame
 			if frame >= 30: times.append((Time.get_ticks_usec() - stamp) / 1000.0)
 		times.sort()
-		results.append({"enabled": enabled,"p50_ms":times[90],"p95_ms":times[171],"max_ms":times.back(),"shadow_updates":flashlight_projector.shadow_updates-updates,"draw_calls":Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),"primitives":Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)})
+		results.append({"enabled": enabled,"p50_ms":times[90],"p95_ms":times[171],"max_ms":times.back(),"shadow_updates":flashlight_projector.shadow_updates-updates,"bounce_updates":flashlight_projector.bounce_updates-bounce_updates,"draw_calls":Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),"primitives":Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)})
 	player.head.rotation = saved_rotation
 	player.flashlight.enabled = true
-	for frame in 4: await get_tree().process_frame
+	for frame in 20: await get_tree().process_frame
 	var idle_start := flashlight_projector.shadow_updates
+	var idle_bounce := flashlight_projector.bounce_updates
 	for frame in 30: await get_tree().process_frame
-	var report := {"seed":world.seed,"composition":world.composition,"resolution":get_viewport().size,"shadow_resolution":FlashlightProjector.RES,"blocks":results,"idle_shadow_updates":flashlight_projector.shadow_updates-idle_start,"note":"Settled ABBA, same model and scripted camera path, frame pacing incl renderer; not GPU timestamps or real mouse input"}
+	var report := {"seed":world.seed,"composition":world.composition,"resolution":get_viewport().size,"shadow_resolution":FlashlightProjector.RES,"blocks":results,"idle_shadow_updates":flashlight_projector.shadow_updates-idle_start,"idle_bounce_updates":flashlight_projector.bounce_updates-idle_bounce,"note":"Settled ABBA, same model and scripted camera path, frame pacing incl renderer; not GPU timestamps or real mouse input"}
 	print("FLASHLIGHT_BENCH ",JSON.stringify(report))
 	if not folder.is_empty():
 		var file := FileAccess.open(folder.path_join("flashlight-bench-seed%d.json" % world.seed),FileAccess.WRITE)

@@ -1,5 +1,14 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**Correctifs éclairage et rebonds de lampe :** [reproduction, causes et validation](docs/LIGHTING_ARTIFACTS_AND_FLASHLIGHT_BOUNCE_2026-10-11.md).
+Graine utilisateur 1601967012 : coupure murale corrigée par reconstruction des
+hauteurs avant interpolation ; PCF corrigé par plan récepteur pour les stries.
+Lampe : cœur/halo plus large et quatre patches réfléchis avec atlas occulté,
+actualisés à 15 Hz maximum, sans readback ni rebake. Test GPU 96 récepteurs rasants,
+rebond avant/derrière cloison et continuité aux plafonds variables passé.
+Douze suites natives passent ; coin sombre et performances Web vérifiés.
+Sources/éclairage artistique conservés. Aucun push ni déploiement de ce correctif.
+
 **P04 : tailles, formes et ramifications :** [architecture et audits](docs/P04_SPATIAL_VARIETY_2026-10-11.md).
 Départ P04 : six familles dont L, T et croix, cinq répartitions de largeur,
 trois de profondeur ; arbre ramifié et zéro à deux boucles. 98 graines / 13
