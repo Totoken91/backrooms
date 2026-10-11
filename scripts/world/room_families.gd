@@ -1,7 +1,8 @@
 class_name RoomFamilies
 extends RefCounted
 ## Authored local modules, expressed in Compositions.Q units. Ports belong to
-## the 12.5 x 10 m reservation, not to a mesh. The assembler opens only used ports.
+## base 12.5 x 10 m reservation; resized/shaped modules retain anchor contracts.
+## The assembler opens only used ports.
 const WIDTH := 100
 const DEPTH := 80
 const HALF_OPENING := 7 # 1.75 m clear width
@@ -69,3 +70,47 @@ static func open_port(module: Dictionary, side: String) -> Dictionary:
 		"west": r = [0, at.y - HALF_OPENING, 10, at.y + HALF_OPENING]
 		_: r = [module.width - 10, at.y - HALF_OPENING, module.width, at.y + HALF_OPENING]
 	return {"rect": r}
+
+## Orthogonal footprints with all four contracted anchors on connected arms.
+## These are unions of rooms/aisles, not obstacles scattered inside a rectangle.
+static func make_shaped(family: String, variant: int, width: int, depth: int) -> Dictionary:
+	if family not in ["bend", "tee", "cross"]:
+		var rectangular := make_sized(family, variant, width, depth)
+		rectangular.shape = "rectangle"
+		# Compression must not move an internal partition across a port mouth.
+		# Reserve a short vestibule around each anchor before opening used ports.
+		for cut in [[23,0,37,20],[23,depth-20,37,depth],[0,23,20,37],[width-20,23,width,37]]:
+			var trimmed := []
+			for item in rectangular.solid:
+				for rect in subtract_rect(item.rect,cut): trimmed.append({"rect":rect})
+			rectangular.solid = trimmed
+		return rectangular
+	var m := make_sized("empty", variant, width, depth)
+	m.family = family
+	m.shape = family
+	m.solid = []
+	match family:
+		"bend":
+			m.free = [{"rect":[10,10,width-10,44]}, {"rect":[10,10,44,depth-10]}]
+			m.view = {"x":30,"z":depth-20,"yaw":0.0,"label":"Pièce en L, révélation à angle droit"}
+			m.height = 2.2
+		"tee":
+			m.free = [{"rect":[10,10,width-10,44]}, {"rect":[23,10,37,depth-10]}]
+			m.view = {"x":30,"z":depth-20,"yaw":0.0,"label":"Galerie en T, branche étroite"}
+		"cross":
+			m.free = [{"rect":[10,23,width-10,37]}, {"rect":[23,10,37,depth-10]}, {"rect":[16,16,44,44]}]
+			m.view = {"x":30,"z":40,"yaw":0.0,"label":"Carrefour resserré"}
+			m.height = 2.2
+	for port in m.ports.values(): port.ceiling = m.height
+	return m
+
+static func subtract_rect(r: Array, cut: Array) -> Array:
+	var x0: int = maxi(r[0],cut[0])
+	var z0: int = maxi(r[1],cut[1])
+	var x1: int = mini(r[2],cut[2])
+	var z1: int = mini(r[3],cut[3])
+	if x0 >= x1 or z0 >= z1: return [r]
+	var result := []
+	for piece in [[r[0],r[1],x0,r[3]],[x1,r[1],r[2],r[3]],[x0,r[1],x1,z0],[x0,z1,x1,r[3]]]:
+		if piece[0] < piece[2] and piece[1] < piece[3]: result.append(piece)
+	return result

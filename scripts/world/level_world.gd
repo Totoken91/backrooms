@@ -4,7 +4,7 @@ extends RefCounted
 ## by meshing, collision and lighting. The 2.5 m cell is only a spatial index
 ## and the unit of the classic baseline maze.
 ##
-## C01/C02 reserve 17.5 m, P01/P02 reserve 27.5 m for a composed/assembled promenade.
+## C01/C02 reserve 17.5 m, P01–P04 reserve 27.5 m for a composed/assembled promenade.
 ## The selected site replaces part of the classic maze in chunk zero. Site exits
 ## always face odd maze cells, which the maze spanning tree reaches.
 
@@ -87,10 +87,10 @@ var _site_fixtures: Array[Fixture] = []
 
 func _init(p_seed: int, p_composition := "C01") -> void:
 	seed = Hashing.u32(p_seed)
-	composition = p_composition if p_composition in ["C01", "C02", "P01", "P02", "P03"] else "C01"
-	if composition in ["P01", "P02", "P03"]:
+	composition = p_composition if p_composition in ["C01", "C02", "P01", "P02", "P03", "P04"] else "C01"
+	if composition in ["P01", "P02", "P03", "P04"]:
 		site = Rect2i(2, 2, 11, 11)
-		version = "level0-godot.5-P03" if composition == "P03" else "level0-godot.4-P02" if composition == "P02" else "level0-godot.3-P01"
+		version = "level0-godot.6-P04" if composition == "P04" else "level0-godot.5-P03" if composition == "P03" else "level0-godot.4-P02" if composition == "P02" else "level0-godot.3-P01"
 		version_hash = Hashing.text(version)
 	if composition == "C02":
 		version = "level0-godot.2-C02"
@@ -301,6 +301,7 @@ func _build_site() -> void:
 	var pick := func(domain: String, n: int) -> int: return channel(composition + "." + domain) % n
 	var c: Dictionary
 	match composition:
+		"P04": c = SpatialAssembler.build(pick, w, d)
 		"P03": c = PromenadeAssembler.build_varied(pick, w, d)
 		"P02": c = PromenadeAssembler.build(pick, w, d)
 		"P01": c = Compositions.p01(pick, w, d)
@@ -453,7 +454,7 @@ func cell_fixtures(x: int, z: int) -> Array:
 
 
 ## Floor and ceiling heights of a cell (the room's solid slabs, see SpanMap).
-## C01 and the classic maze are flat; C02/P01/P02 supply cell-aligned ceilings.
+## C01 and the classic maze are flat; C02/P01–P04 supply cell-aligned ceilings.
 func floor_height(_x: int, _z: int) -> float:
 	return 0.0
 

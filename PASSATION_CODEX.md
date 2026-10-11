@@ -1,5 +1,13 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**P04 : tailles, formes et ramifications :** [architecture et audits](docs/P04_SPATIAL_VARIETY_2026-10-11.md).
+Départ P04 : six familles dont L, T et croix, cinq répartitions de largeur,
+trois de profondeur ; arbre ramifié et zéro à deux boucles. 98 graines / 13
+graphes observés, accès aux vues/sorties et rayon joueur contrôlés.
+Onze suites passent ; captures normales et Web local (99 bakes, console propre)
+inspectés. P03 reste sélectionnable. Site encore borné : prochaine étape, réservations
+et métadonnées distribuées dans les chunks. Aucun push ni déploiement.
+
 **P03 et lampe v3 intégrés :** [architecture et validation](docs/FLASHLIGHT_AND_P03_2026-10-11.md).
 Départ P03 : modules de tailles différentes, trois graphes et une alcôve basse
 en impasse (cinq modules bornés). Lampe sous la caméra, F, éteinte par défaut ;
