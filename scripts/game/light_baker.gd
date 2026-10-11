@@ -6,8 +6,8 @@ extends Node
 ## One render per frame; callers await the returned coroutine.
 
 const RES := 160
-## Viewport tiles: the direct pass fills four, the gather passes three.
-const TILES := 4
+## Viewport tiles: the direct pass fills five, the gather passes three.
+const TILES := 5
 const TEXEL := 0.25
 const OCC_TEXEL := 0.125
 const MARGIN := 10.0

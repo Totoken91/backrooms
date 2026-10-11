@@ -7,13 +7,16 @@ render_mode blend_disabled;
 //   tile 2: wall h1 (-Z), wall h2 (+X, -X, +Z)
 //   tile 3: wall h2 (-Z), then the share of the floor light coming from each
 //           flicker group 1..3 (a fraction, encoded like the irradiance)
+//   tile 4: room space of the column: floor and ceiling heights (16 bits each)
+// The floor and wall receivers sit in the column's own space (gap.gdshaderinc).
 // "Wall" values are the irradiance on a vertical surface facing that axis, at
-// WALL_H0 / WALL_H1 / WALL_H2. Panels are Lambertian rectangles facing down,
+// three heights of the column's room space. Panels are Lambertian squares facing down,
 // sampled at 8 points; visibility is traced in 3D through the solid spans of
 // the level (spans.gdshaderinc). Coordinates are relative to the chunk origin.
 // Values are stored as sqrt(E / e_max) for low-end precision.
 
 #include "res://shaders/spans.gdshaderinc"
+#include "res://shaders/gap.gdshaderinc"
 
 uniform sampler2D fix_tex : filter_nearest, repeat_disable; // row 0: x, z, radiance, height; row 1: flicker group
 uniform int fix_count = 0;
@@ -24,12 +27,6 @@ uniform float e_max = 6.0;
 uniform float reach = 8.0;
 uniform bool calibrate = false;   // development: writes the texel coordinates
 
-// Wall heights: the light on a wall rises from the floor, peaks and falls
-// again under the ceiling (recessed panels send little light sideways), so
-// three heights are needed (surface.gdshader: wall_profile).
-const float WALL_H0 = 0.4;
-const float WALL_H1 = 1.8;
-const float WALL_H2 = 2.9;
 
 // Texels whose centre lies in a wall take the light of the nearest free
 // point: otherwise bilinear filtering bleeds black into the floor and walls
@@ -53,6 +50,10 @@ void fragment() {
 	vec2 local = vec2(mod(cell.x, res), cell.y);
 	vec2 p = free_point((local + 0.5) * texel);
 	vec4 outv = vec4(0.0);
+	// Room space of the column; the wall light is stored at three heights in
+	// it: it rises from the floor, peaks and falls under the ceiling.
+	vec2 gap = column_gap(p);
+	vec3 hs = wall_heights(gap);
 	if (occupied(p) < 0.5) {
 		float e[13];
 		for (int k = 0; k < 13; k++) e[k] = 0.0;
@@ -71,13 +72,13 @@ void fragment() {
 				// Visibility in 3D per receiver height (a lintel can hide a panel
 				// from the floor and not from the top of a wall): floor and h0
 				// share one test.
-				float vis_low = visible(vec3(p.x, 0.02, p.y), lp);
-				float vis_mid = visible(vec3(p.x, WALL_H1, p.y), lp);
-				float vis_top = visible(vec3(p.x, WALL_H2, p.y), lp);
+				float vis_low = visible(vec3(p.x, gap.x + 0.02, p.y), lp);
+				float vis_mid = visible(vec3(p.x, hs.y, p.y), lp);
+				float vis_top = visible(vec3(p.x, hs.z, p.y), lp);
 				if (vis_low + vis_mid + vis_top < 0.5) continue;
 				// dA = panel area (0.694 m²) / 9; radiance f.z; E += L cos cos dA / d².
 				float w = f.z * 0.0772;
-				vec3 v = lp - vec3(p.x, 0.02, p.y);
+				vec3 v = lp - vec3(p.x, gap.x + 0.02, p.y);
 				float d2 = dot(v, v);
 				vec3 o = v * inversesqrt(d2);
 				e[0] += vis_low * w * o.y * o.y / d2;
@@ -85,7 +86,7 @@ void fragment() {
 				for (int h = 0; h < 3; h++) {
 					float vis = h == 0 ? vis_low : (h == 1 ? vis_mid : vis_top);
 					if (vis < 0.5) continue;
-					vec3 vh = lp - vec3(p.x, h == 0 ? WALL_H0 : (h == 1 ? WALL_H1 : WALL_H2), p.y);
+					vec3 vh = lp - vec3(p.x, hs[h], p.y);
 					float dh = dot(vh, vh);
 					vec3 oh = vh * inversesqrt(dh);
 					for (int a = 0; a < 4; a++)
@@ -97,7 +98,7 @@ void fragment() {
 		// surface there: it takes the value of the free height below, or the
 		// wall profile through a zero would darken the whole wall.
 		for (int h = 1; h < 3; h++) {
-			float y = h == 1 ? WALL_H1 : WALL_H2;
+			float y = hs[h];
 			if (blocked(p, y - 0.01, y + 0.01))
 				for (int a = 0; a < 4; a++) e[1 + h * 4 + a] = e[1 + (h - 1) * 4 + a];
 		}
@@ -107,6 +108,8 @@ void fragment() {
 		else outv = vec4(e[12], eg / max(e[0], 1e-4));
 		outv = sqrt(clamp(outv / e_max, 0.0, 1.0));
 	}
+	// Room space, read without filtering (gap_map); the denoise pass keeps it.
+	if (tile > 3.5) outv = vec4(encode_height(gap.x), encode_height(gap.y));
 	if (calibrate) outv = vec4(local / res, tile / 4.0, 1.0);
 	COLOR = outv;
 }

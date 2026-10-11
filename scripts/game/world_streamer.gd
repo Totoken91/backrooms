@@ -27,11 +27,11 @@ var max_build_ms := 0.0
 ## Changes whenever the set of loaded chunks changes.
 var generation := 0
 ## Baked light on the GPU (shaders/light_maps.gdshaderinc): MAPS layers per
-## chunk slot (LightBaker layout: 0-3 direct, 4-6 first gather, 7-9 shown
-## indirect light) and one contact-occlusion layer; slot_chunk[slot] is the
+## chunk slot (LightBaker layout: 0-3 direct, 4 room space, 5-7 first gather,
+## 8-10 shown indirect light) and one contact-occlusion layer; slot_chunk[slot] is the
 ## chunk a slot holds.
 const SLOTS := 7
-const MAPS := 10
+const MAPS := 11
 var light_maps := Texture2DArray.new()
 var ao_maps := Texture2DArray.new()
 var slot_chunk := PackedVector2Array()
@@ -110,15 +110,15 @@ func _upload(chunk: Chunk, what := "all") -> void:
 		what = "all"
 	var shown: Array = chunk.bounce if not chunk.bounce.is_empty() else chunk.bounce1
 	if what == "all" or what == "direct":
-		for i in 4:
+		for i in 5:
 			light_maps.update_layer(chunk.direct[i] if i < chunk.direct.size() else _black, base + i)
 		ao_maps.update_layer(chunk.ao if chunk.ao else _white, slot)
 	if what == "all" or what == "bounce1":
 		for i in 3:
-			light_maps.update_layer(chunk.bounce1[i] if i < chunk.bounce1.size() else _black, base + 4 + i)
+			light_maps.update_layer(chunk.bounce1[i] if i < chunk.bounce1.size() else _black, base + 5 + i)
 	if what != "direct":
 		for i in 3:
-			light_maps.update_layer(shown[i] if i < shown.size() else _black, base + 7 + i)
+			light_maps.update_layer(shown[i] if i < shown.size() else _black, base + 8 + i)
 	if not owned:
 		slot_chunk[slot] = Vector2(k)
 		_publish_slots()
@@ -311,7 +311,7 @@ func relighting() -> int:
 	return n
 
 
-## The ten map values (sqrt-encoded, LightBaker layout) at p, from the
+## The eleven map values (sqrt-encoded, LightBaker layout) at p, from the
 ## chunk's images; black where not baked.
 func map_values(p: Vector3) -> Array[Color]:
 	var out: Array[Color] = []
@@ -325,9 +325,9 @@ func map_values(p: Vector3) -> Array[Color]:
 	for i in chunk.direct.size():
 		out[i] = chunk.direct[i].get_pixelv(t)
 	for i in chunk.bounce1.size():
-		out[4 + i] = chunk.bounce1[i].get_pixelv(t)
+		out[5 + i] = chunk.bounce1[i].get_pixelv(t)
 	for i in shown.size():
-		out[7 + i] = shown[i].get_pixelv(t)
+		out[8 + i] = shown[i].get_pixelv(t)
 	return out
 
 
@@ -336,4 +336,4 @@ func light_at(p: Vector3) -> Color:
 	var v := map_values(p)
 	var e := v[0].r * v[0].r * LightBaker.E_MAX
 	var k := LightBaker.I_MAX
-	return Color(e + v[7].r * v[7].r * k, e * 0.97 + v[7].g * v[7].g * k, e * 0.9 + v[7].b * v[7].b * k) / PI
+	return Color(e + v[8].r * v[8].r * k, e * 0.97 + v[8].g * v[8].g * k, e * 0.9 + v[8].b * v[8].b * k) / PI

@@ -33,5 +33,6 @@ void fragment() {
 			wsum += w;
 		}
 	}
-	COLOR = wsum > 0.0 ? sum / wsum : centre;
+	// Tile 4 holds encoded heights: no blur.
+	COLOR = (wsum > 0.0 && tile < 3.5) ? sum / wsum : centre;
 }

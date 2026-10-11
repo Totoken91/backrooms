@@ -70,6 +70,9 @@ var _chunks := {}
 var _maze_boxes := {}
 ## Panels switched off for good during the exploration (fixture id -> true).
 var panels_off := {}
+## Development: 3D test geometry in the maze (duct roofs, raised floors), to
+## check the lighting of varied room spaces against Cycles.
+var geo_test := false
 var _maze_fixtures := {}
 var _site_index := {}
 var _site_fixture_index := {}
@@ -348,10 +351,30 @@ func cell_boxes(x: int, z: int) -> Array:
 	if kind == 2:
 		return _site_index.get(Vector2i(x, z), [])
 	if kind != 1:
-		return []
+		return _test_boxes(x, z) if geo_test else []
 	var k := Vector2i(x, z)
 	if not _maze_boxes.has(k):
 		_maze_boxes[k] = [Box.new("m%d,%d" % [x, z], "wall", x * CELL, z * CELL, (x + 1) * CELL, (z + 1) * CELL)]
+	return _maze_boxes[k]
+
+
+## Test geometry of an open maze cell: one in six gets a duct roof at 1.3 m,
+## one in six a floor raised by 0.5 m.
+func _test_kind(x: int, z: int) -> int:
+	return channel("geotest", [x, z]) % 6
+
+
+func _test_boxes(x: int, z: int) -> Array:
+	var k := Vector2i(x, z)
+	if not _maze_boxes.has(k):
+		var boxes := []
+		var t := _test_kind(x, z)
+		if t <= 1:
+			var b := Box.new("t%d,%d" % [x, z], "wall", x * CELL, z * CELL, (x + 1) * CELL, (z + 1) * CELL)
+			b.y0 = 1.3 if t == 0 else 0.0
+			b.y1 = HEIGHT if t == 0 else 0.5
+			boxes.append(b)
+		_maze_boxes[k] = boxes
 	return _maze_boxes[k]
 
 
@@ -384,6 +407,9 @@ func cell_fixtures(x: int, z: int) -> Array:
 	if _maze_fixtures.has(k):
 		return _maze_fixtures[k]
 	var result := []
+	if geo_test and _test_kind(x, z) == 0:
+		_maze_fixtures[k] = result
+		return result
 	# Dark stretches (no panel at all) are wanted: they are frightening.
 	if light_density(x, z) > 0.34 and channel("fixtures.hole", [x, z]) % 100 >= 8:
 		var f := Fixture.new()

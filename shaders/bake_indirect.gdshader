@@ -15,6 +15,7 @@ render_mode blend_disabled;
 // whole streamed region. `boost` stands for the further bounces.
 
 #include "res://shaders/spans.gdshaderinc"
+#include "res://shaders/gap.gdshaderinc"
 
 #include "res://shaders/light_maps.gdshaderinc"
 // 0 on the first gather; on the second, the factor on the first gather seen
@@ -62,24 +63,12 @@ vec3 bmap(int map, vec2 p) {
 
 // Direct irradiance of a wall facing `axis` (0 +X, 1 -X, 2 +Z, 3 -Z) at height y,
 // read just in front of it at p.
-// As in surface.gdshader. Wall irradiance at height y from its values at 0.4, 1.8 and 2.9 m: a
-// quadratic in log space (positive, can rise then fall under the ceiling),
-// bounded by the samples so the extrapolation stays tame.
-float wall_profile(float e0, float e1, float e2, float y) {
-	float l0 = log(max(e0, 1e-4)), l1 = log(max(e1, 1e-4)), l2 = log(max(e2, 1e-4));
-	y = clamp(y, 0.0, ceiling);
-	float a0 = (y - 1.8) * (y - 2.9) / ((0.4 - 1.8) * (0.4 - 2.9));
-	float a1 = (y - 0.4) * (y - 2.9) / ((1.8 - 0.4) * (1.8 - 2.9));
-	float a2 = (y - 0.4) * (y - 1.8) / ((2.9 - 0.4) * (2.9 - 1.8));
-	return min(exp(a0 * l0 + a1 * l1 + a2 * l2), max(e0, max(e1, e2)) * 1.15);
-}
-
 float wall_direct(vec2 p, int axis, float y) {
 	vec4 a = dmap(0, p), b = dmap(1, p), c = dmap(2, p), d = dmap(3, p);
 	float h0 = axis == 0 ? a.y : axis == 1 ? a.z : axis == 2 ? a.w : b.x;
 	float h1 = axis == 0 ? b.y : axis == 1 ? b.z : axis == 2 ? b.w : c.x;
 	float h2 = axis == 0 ? c.y : axis == 1 ? c.z : axis == 2 ? c.w : d.x;
-	return wall_profile(h0, h1, h2, y);
+	return wall_profile(h0, h1, h2, y, column_gap(p));
 }
 
 void fragment() {
@@ -90,14 +79,10 @@ void fragment() {
 	vec3 total = vec3(0.0);
 	// Three tiles only (the viewport has four, for the direct pass).
 	if (tile < 2.5 && occupied(p) < 0.5) {
-		// Ceiling receiver: just under the first solid above the room, so the
-		// underside of a lintel or a slab is the "ceiling" of its column.
-		float top = ceiling;
-		vec4 ra, rb;
-		spans_at(p, ra, rb);
-		vec4 rlo = vec4(ra.x, ra.z, rb.x, rb.z);
-		for (int k = 0; k < 4; k++) if (rlo[k] > 0.5) top = min(top, rlo[k]);
-		float y0 = tile < 0.5 ? 0.03 : (tile < 1.5 ? top - 0.03 : 1.4);
+		// Receivers in the column's room space: its floor, its ceiling (the
+		// underside of a lintel or duct roof above it), walls midway.
+		vec2 gap = column_gap(p);
+		float y0 = tile < 0.5 ? gap.x + 0.03 : (tile < 1.5 ? gap.y - 0.03 : (gap.x + gap.y) * 0.5);
 		// Walls: the light a wall receives comes from the half-space in front of
 		// it. Next to a wall (within 0.5 m) face away from it; elsewhere average
 		// the four orientations.
@@ -157,7 +142,7 @@ void fragment() {
 						vec2 wall_at = floor((qm - occ_origin) / occ_texel);
 						vec2 front = occ_origin + (wall_at + 0.5) * occ_texel;
 						front = mix(front, prev_mid, abs(face.yx)) + face * (0.0625 + 0.2);
-						radiance = wall_albedo * (wall_direct(front, axis, clamp(ya, 0.0, ceiling)) + bmap(6, front)) / PI;
+						radiance = wall_albedo * (wall_direct(front, axis, ya) + bmap(7, front)) / PI;
 						break;
 					}
 					// Horizontal faces crossed within the step: the first one met.
@@ -172,13 +157,13 @@ void fragment() {
 						vec2 q = p + dir.xz * ((face_y - y0) / dir.y);
 						if (dir.y < 0.0) {
 							// Floor, or the top of a slab (seen with the floor's light).
-							vec3 alb = face_y < 0.1 ? floor_albedo : wall_albedo;
-							radiance = alb * (dmap(0, q).x + bmap(4, q)) / PI;
+							vec3 alb = face_y < column_gap(q).x + 0.1 ? floor_albedo : wall_albedo;
+							radiance = alb * (dmap(0, q).x + bmap(5, q)) / PI;
 						} else {
 							// Ceiling (no direct light: the panels face down), or the
 							// underside of a lintel, lit from below like the ceiling.
 							vec3 alb = face_y > ceiling - 0.1 ? ceiling_albedo : wall_albedo;
-							radiance = alb * bmap(5, q) / PI;
+							radiance = alb * bmap(6, q) / PI;
 						}
 						break;
 					}

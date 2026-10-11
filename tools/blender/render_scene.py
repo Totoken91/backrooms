@@ -134,7 +134,7 @@ for i, (x0, z0, x1, z1, power) in enumerate(data["fixtures"]):
     vs, fs_ = (pv, pf) if power > 0.1 else (dv, df)
     b = len(vs)
     y = H - 0.004
-    vs += [to_b(x0 + 0.0125, y, z0 + 0.0125), to_b(x1 - 0.0125, y, z0 + 0.0125), to_b(x1 - 0.0125, y, z1 - 0.0125), to_b(x0 + 0.0125, y, z1 - 0.0125)]
+    vs += [to_b(x0, y, z0), to_b(x1, y, z0), to_b(x1, y, z1), to_b(x0, y, z1)]  # frameless diffuser
     fs_.append((b, b + 3, b + 2, b + 1))
     if power > 0.1:
         powers.append(power)

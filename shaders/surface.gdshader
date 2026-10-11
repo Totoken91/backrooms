@@ -14,6 +14,7 @@ uniform bool ceiling_grid = false;
 // 1 adds a little damp near the floor (wallpaper).
 uniform bool wall_damp = false;
 
+#include "res://shaders/gap.gdshaderinc"
 #include "res://shaders/light_maps.gdshaderinc"
 uniform vec3 panel_color = vec3(1.0, 0.97, 0.9);
 uniform float e_max = 6.0;
@@ -62,18 +63,6 @@ vec3 to_srgb(vec3 c) {
 	return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, lessThan(c, vec3(0.0031308)));
 }
 
-// Wall irradiance at height y from its values at 0.4, 1.8 and 2.9 m: a
-// quadratic in log space (positive, can rise then fall under the ceiling),
-// bounded by the samples so the extrapolation stays tame.
-float wall_profile(float e0, float e1, float e2, float y) {
-	float l0 = log(max(e0, 1e-4)), l1 = log(max(e1, 1e-4)), l2 = log(max(e2, 1e-4));
-	y = clamp(y, 0.0, ceiling_height);
-	float a0 = (y - 1.8) * (y - 2.9) / ((0.4 - 1.8) * (0.4 - 2.9));
-	float a1 = (y - 0.4) * (y - 2.9) / ((1.8 - 0.4) * (1.8 - 2.9));
-	float a2 = (y - 0.4) * (y - 1.8) / ((2.9 - 0.4) * (2.9 - 1.8));
-	return min(exp(a0 * l0 + a1 * l1 + a2 * l2), max(e0, max(e1, e2)) * 1.15);
-}
-
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
@@ -105,16 +94,18 @@ void fragment() {
 	}
 	vec2 at = world_pos.xz + world_normal.xz * 0.13;
 	vec4 d0 = light_map(0, at), d1 = light_map(1, at), d2 = light_map(2, at), d3 = light_map(3, at);
+	// Room space of this column (floor and ceiling heights).
+	vec2 gap = gap_map(at, ceiling_height);
 	d0 = d0 * d0 * e_max; d1 = d1 * d1 * e_max; d2 = d2 * d2 * e_max; d3 = d3 * d3 * e_max;
 	vec3 direct;
 	vec3 bounce;
 	if (world_normal.y > 0.5) {
 		direct = vec3(d0.x);
-		vec3 b = light_map(7, at).rgb;
+		vec3 b = light_map(8, at).rgb;
 		bounce = b * b * i_max;
 	} else if (world_normal.y < -0.5) {
 		direct = vec3(0.0);
-		vec3 b = light_map(8, at).rgb;
+		vec3 b = light_map(10, at).rgb;
 		bounce = b * b * i_max;
 	} else {
 		// Walls: irradiance for the facing axis at three heights.
@@ -122,10 +113,13 @@ void fragment() {
 		float h0 = axis == 0 ? d0.y : axis == 1 ? d0.z : axis == 2 ? d0.w : d1.x;
 		float h1 = axis == 0 ? d1.y : axis == 1 ? d1.z : axis == 2 ? d1.w : d2.x;
 		float h2 = axis == 0 ? d2.y : axis == 1 ? d2.z : axis == 2 ? d2.w : d3.x;
-		direct = vec3(wall_profile(h0, h1, h2, world_pos.y));
+		direct = vec3(wall_profile(h0, h1, h2, world_pos.y, gap));
 		vec3 b = light_map(9, at).rgb;
 		bounce = b * b * i_max;
 	}
+	// Development (debug_view 10): the first gather alone (one bounce).
+	vec3 fb = light_map(world_normal.y > 0.5 ? 5 : (world_normal.y < -0.5 ? 6 : 7), at).rgb;
+	vec3 first_bounce = fb * fb * i_max;
 	// Flicker: each group's share of the direct light here (baked) follows the
 	// group's power; the indirect light follows a share smoothed over ~1.5 m.
 	vec3 dim = vec3(1.0) - group_power;
@@ -141,8 +135,8 @@ void fragment() {
 	// Contact occlusion: full on the floor, fading up the wall from its foot
 	// and down from the ceiling, so corners and junctions darken softly.
 	float occlusion = ao_map(world_pos.xz + world_normal.xz * 0.03);
-	float near_floor = 1.0 - smoothstep(0.0, 0.35, world_pos.y);
-	float near_ceiling = 1.0 - smoothstep(0.0, 0.4, ceiling_height - world_pos.y);
+	float near_floor = 1.0 - smoothstep(0.0, 0.35, world_pos.y - gap.x);
+	float near_ceiling = 1.0 - smoothstep(0.0, 0.4, gap.y - world_pos.y);
 	// Light at the ceiling: a lit wall brightens the ceiling beside it, so the
 	// wall-ceiling junction only darkens slightly.
 	float junction = world_normal.y > 0.5 ? 1.0 : (world_normal.y < -0.5 ? 0.15 : max(near_floor * 0.7, near_ceiling * 0.1));
@@ -154,5 +148,5 @@ void fragment() {
 	float fresnel = 0.04 + (max(1.0 - roughness, 0.04) - 0.04) * pow(1.0 - cos_v, 5.0);
 	vec3 irradiance = direct * panel_color + bounce;
 	ALBEDO = to_srgb((color * (1.0 - fresnel) + fresnel) * irradiance * contact * light_scale / PI);
-	if (debug_view > 0.5) ALBEDO = debug_view < 1.5 ? vec3(fract(at / 40.0), 0.0) : debug_view < 2.5 ? d0.rgb / e_max : debug_view < 3.5 ? light_map(0, at).rgb : debug_view < 4.5 ? vec3(ao_map(at)) : debug_view < 5.5 ? to_srgb(vec3(0.18)) : debug_view < 6.5 ? to_srgb(color) : debug_view < 7.5 ? vec3(contact) : debug_view < 8.5 ? to_srgb(direct * panel_color / PI) : to_srgb(bounce / PI);
+	if (debug_view > 0.5) ALBEDO = debug_view < 1.5 ? vec3(fract(at / 40.0), 0.0) : debug_view < 2.5 ? d0.rgb / e_max : debug_view < 3.5 ? light_map(0, at).rgb : debug_view < 4.5 ? vec3(ao_map(at)) : debug_view < 5.5 ? to_srgb(vec3(0.18)) : debug_view < 6.5 ? to_srgb(color) : debug_view < 7.5 ? vec3(contact) : debug_view < 8.5 ? to_srgb(direct * panel_color / PI) : debug_view < 9.5 ? to_srgb(bounce / PI) : to_srgb(first_bounce / PI);
 }

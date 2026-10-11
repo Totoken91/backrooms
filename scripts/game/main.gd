@@ -80,10 +80,22 @@ func _ready() -> void:
 		for attempt in 4000:
 			if found >= int(options.scout):
 				break
-			var cx := rng.randi_range(-24, 24)
-			var cz := rng.randi_range(-24, 24)
-			if absi(cx) < 10 and absi(cz) < 10:
+			var r := int(options.get("scout_r", 24))
+			var cx := rng.randi_range(-r, r)
+			var cz := rng.randi_range(-r, r)
+			if r >= 20 and absi(cx) < 10 and absi(cz) < 10:
 				continue
+			if world.cell_kind(cx, cz) == 2:
+				continue
+			# Geometry test: views next to test cells.
+			if world.geo_test:
+				var near_test := false
+				for dz in range(-1, 2):
+					for dx in range(-1, 2):
+						if world.cell_kind(cx + dx, cz + dz) == 0 and not world.cell_boxes(cx + dx, cz + dz).is_empty():
+							near_test = true
+				if not near_test:
+					continue
 			var p := Vector2((cx + 0.5) * LevelWorld.CELL, (cz + 0.5) * LevelWorld.CELL)
 			if world.point_blocked(p.x, p.y) or world.light_density(cx, cz) > 0.6:
 				continue
@@ -167,7 +179,7 @@ func _dump(folder: String, n: String) -> void:
 		var w: Vector3 = p + fwd * dist
 		var v := streamer.map_values(w)
 		var e := func(c: Color, k: float) -> String: return "%.2f/%.2f/%.2f/%.2f" % [c.r * c.r * k, c.g * c.g * k, c.b * c.b * k, c.a * c.a * k]
-		print("at %.0fm " % dist, Vector2(w.x, w.z), " direct ", e.call(v[0], LightBaker.E_MAX), " | indirect floor ", e.call(v[7], LightBaker.I_MAX), " ceiling ", e.call(v[8], LightBaker.I_MAX), " walls ", e.call(v[9], LightBaker.I_MAX))
+		print("at %.0fm " % dist, Vector2(w.x, w.z), " direct ", e.call(v[0], LightBaker.E_MAX), " | indirect floor ", e.call(v[8], LightBaker.I_MAX), " ceiling ", e.call(v[9], LightBaker.I_MAX), " walls ", e.call(v[10], LightBaker.I_MAX))
 
 
 # --- Options --------------------------------------------------------------
@@ -193,6 +205,7 @@ func _read_options() -> Dictionary:
 func new_exploration(seed := -1) -> void:
 	var value := seed if seed >= 0 else LevelWorld.fresh_seed(world.seed if world else -1)
 	world = LevelWorld.new(value)
+	world.geo_test = options.has("geotest")
 	lights.world = world
 	streamer.reset(world)
 	player.place(world.spawn.position, world.spawn.yaw)
@@ -544,8 +557,8 @@ func _export_scene(path: String) -> void:
 	var fixtures := {}
 	var s: Vector3 = world.spawn.position
 	var c := Vector2i(floori(s.x / LevelWorld.CELL), floori(s.z / LevelWorld.CELL))
-	for z in range(c.y - 14, c.y + 15):
-		for x in range(c.x - 14, c.x + 15):
+	for z in range(c.y - 24, c.y + 25):
+		for x in range(c.x - 24, c.x + 25):
 			for b in world.cell_boxes(x, z):
 				boxes[b.id] = [b.x0, b.z0, b.x1, b.z1, b.y0, b.y1]
 			for f in world.cell_fixtures(x, z):

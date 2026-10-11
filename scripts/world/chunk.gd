@@ -65,7 +65,9 @@ func setup(world: LevelWorld, p_coord: Vector2i, materials: Dictionary, panel_me
 					_emit_box(b)
 					if b.y0 < LevelWorld.BODY_HEIGHT:
 						solids.append(b)
-				if b.occluder:
+				# Only boxes filling the room's height hide the floor and ceiling (a
+				# duct roof or a raised floor leaves one of them visible).
+				if b.occluder and b.y0 <= 1e-6 and b.y1 >= H - 1e-6:
 					covered += maxf(0.0, minf(b.x1, (x + 1) * CELL) - maxf(b.x0, x * CELL)) * maxf(0.0, minf(b.z1, (z + 1) * CELL) - maxf(b.z0, z * CELL))
 			for f in _world.cell_fixtures(x, z):
 				fixtures.append(f)
@@ -310,7 +312,8 @@ func set_panel_power(index: int, power: float) -> void:
 # --- Contact occlusion ----------------------------------------------------
 
 ## Fine contact occlusion, 0.3125 m texels: exact distance to the full-height
-## wall boxes, summed so inner corners darken more than straight walls.
+## wall boxes (only those: the junctions of floor and walls), summed so inner
+## corners darken more than straight walls.
 func bake_ao(slice_ms: float) -> void:
 	var slice_start := Time.get_ticks_usec()
 	ao = Image.create(AO_RES, AO_RES, false, Image.FORMAT_L8)
@@ -327,7 +330,7 @@ func bake_ao(slice_ms: float) -> void:
 			for cz in range(cz0, floori((wz + 1.0) / CELL) + 1):
 				for cx in range(cx0, floori((wx + 1.0) / CELL) + 1):
 					for b in _world.cell_boxes(cx, cz):
-						if not b.occluder:
+						if not b.occluder or b.y0 > 1e-6 or b.y1 < H - 1e-6:
 							continue
 						var dx: float = wx - clampf(wx, b.x0, b.x1)
 						var dz: float = wz - clampf(wz, b.z0, b.z1)

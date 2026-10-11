@@ -49,9 +49,19 @@ void spans_at(vec2 p, out vec4 a, out vec4 b) {
 	}
 }
 
-// Floor-level wall test (1 = solid just above the floor), for the receivers.
+// Room space of the column at p: its floor is the top of the lowest span,
+// its ceiling the bottom of the next one (the default room outside the map).
+vec2 column_gap(vec2 p) {
+	vec4 a, b;
+	spans_at(p, a, b);
+	return vec2(a.y, a.z > -50.0 ? a.z : ceiling);
+}
+
+// Wall test for the receivers: 1 when the column has no room space (solid
+// from its floor to its ceiling). A raised floor or a duct roof leaves space.
 float occupied(vec2 p) {
-	return blocked(p, 0.04, 0.06) ? 1.0 : 0.0;
+	vec2 gap = column_gap(p);
+	return gap.y - gap.x < 0.1 ? 1.0 : 0.0;
 }
 
 // Is the straight line a → b free of solid geometry? Marches the columns it
