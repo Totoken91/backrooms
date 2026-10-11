@@ -1,0 +1,26 @@
+HORS PLAN — Prototype d'exploration du Niveau 0
+Windows x64 · Godot 4.6 · P07
+
+Extraire tout le ZIP, puis lancer Hors Plan.exe.
+Conserver Hors Plan.exe et Hors Plan.pck dans le même dossier.
+Aucune installation nécessaire. Le prototype n'a pas de sauvegarde de partie.
+Chaque nouvelle exploration utilise une nouvelle graine.
+
+COMMANDES
+ZQSD / WASD : se déplacer (positions physiques du clavier)
+Souris : regarder
+Maj : courir
+F : allumer / éteindre la lampe
+Échap : pause et libération de la souris
+K : skateboard expérimental
+F3 : afficher / masquer le diagnostic
+
+Prototype en développement : génération et éclairage évoluent encore.
+La première préparation de la lumière peut prendre plusieurs dizaines de secondes.
+Attendre sa stabilisation pour évaluer les performances.
+Pas encore de survie, d'inventaire ou d'entités dans ce prototype.
+
+Distribution : https://backrooms-sable-five.vercel.app/
+Source : https://github.com/Totoken91/backrooms
+
+Consulter THIRD-PARTY.txt pour les licences tierces.

@@ -1,11 +1,9 @@
-name: Web build
+name: Archived Web build (manual only)
 
 # Exports the Godot project for the browser on every push to main and commits
 # the result in build/web, which Vercel serves from main. That commit carries
 # [skip ci] so it does not start this workflow again.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

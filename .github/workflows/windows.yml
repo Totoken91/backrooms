@@ -1,0 +1,80 @@
+name: Windows release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'shaders/**'
+      - 'scenes/**'
+      - 'assets/**'
+      - 'project.godot'
+      - 'export_presets.cfg'
+      - '.github/workflows/windows.yml'
+      - 'distribution/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: 4.6-stable
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install verified official Godot and Windows templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=https://github.com/godotengine/godot/releases/download/$GODOT_VERSION
+          cd "$RUNNER_TEMP"
+          curl -fSsLO "$base/SHA512-SUMS.txt"
+          curl -fSsLO "$base/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          curl -fSsLO "$base/Godot_v${GODOT_VERSION}_export_templates.tpz"
+          grep -E " Godot_v${GODOT_VERSION}_(linux.x86_64.zip|export_templates.tpz)$" SHA512-SUMS.txt | sha512sum -c -
+          unzip -q "Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          sudo mv "Godot_v${GODOT_VERSION}_linux.x86_64" /usr/local/bin/godot
+          dest="$HOME/.local/share/godot/export_templates/${GODOT_VERSION/-/.}"
+          mkdir -p "$dest"
+          unzip -q -j "Godot_v${GODOT_VERSION}_export_templates.tpz" templates/version.txt templates/windows_release_x86_64.exe -d "$dest"
+      - name: Import and check the world
+        run: |
+          godot --headless --path . --import
+          godot --headless --path . --script res://tests/test_world.gd
+      - name: Export Windows x64 and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p 'build/windows/Hors Plan'
+          godot --headless --path . --export-release Windows 'build/windows/Hors Plan/Hors Plan.exe'
+          test -s 'build/windows/Hors Plan/Hors Plan.exe'
+          test -s 'build/windows/Hors Plan/Hors Plan.pck'
+          cp distribution/LISEZ-MOI.txt 'build/windows/Hors Plan/'
+          cp distribution/THIRD-PARTY.txt 'build/windows/Hors Plan/'
+          cp distribution/GODOT-LICENSE.txt distribution/GODOT-COPYRIGHT.txt 'build/windows/Hors Plan/'
+          printf 'Source: %s\nGodot: %s\n' "$GITHUB_SHA" "$GODOT_VERSION" > 'build/windows/Hors Plan/VERSION.txt'
+          cd build/windows
+          zip -qr Hors-Plan-Windows-x64.zip 'Hors Plan'
+          unzip -t Hors-Plan-Windows-x64.zip
+          sha256sum Hors-Plan-Windows-x64.zip > SHA256SUMS.txt
+      - name: Publish downloadable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="windows-${GITHUB_SHA::7}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "This source commit already has a release; keeping its original assets."
+            exit 0
+          fi
+          gh release create "$tag" build/windows/Hors-Plan-Windows-x64.zip build/windows/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "Hors Plan — Windows x64 (${GITHUB_SHA::7})" \
+            --notes-file distribution/RELEASE.md --latest

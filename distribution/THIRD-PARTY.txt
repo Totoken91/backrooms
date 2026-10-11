@@ -1,0 +1,16 @@
+HORS PLAN — Composants tiers
+
+Godot Engine 4.6 — licence MIT.
+Copyright (c) 2014-present Godot Engine contributors.
+Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.
+Licence complète : GODOT-LICENSE.txt.
+Notices des composants du moteur : GODOT-COPYRIGHT.txt.
+https://godotengine.org/license/
+
+Lampe utilitaire : géométrie et atlas créés pour ce projet.
+Rugosité adaptée de Metal Plate 02, Rob Tuytel / Poly Haven, CC0.
+https://polyhaven.com/a/metal_plate_02
+https://polyhaven.com/license
+
+Les captures de la vitrine sont des captures réelles du prototype Hors Plan.
+Aucune photographie de référence externe n'est incluse dans la distribution.
