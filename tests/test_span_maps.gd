@@ -26,7 +26,7 @@ func reference(world: LevelWorld, origin: Vector2, size: int, texel: float) -> S
 	return map
 
 func run() -> void:
-	for spec in [[2, true, Vector2(-10, -10)], [99, false, Vector2(-50, -10)], [17, true, Vector2(30, -50)], [99, false, Vector2(-10, -10), "C02"], [99, false, Vector2(-10, -10), "P01"], [99, false, Vector2(-10, -10), "P02"], [7, false, Vector2(-10, -10), "P03"], [99, false, Vector2(-10, -10), "P04"]]:
+	for spec in [[2, true, Vector2(-10, -10)], [99, false, Vector2(-50, -10)], [17, true, Vector2(30, -50)], [99, false, Vector2(-10, -10), "C02"], [99, false, Vector2(-10, -10), "P01"], [99, false, Vector2(-10, -10), "P02"], [7, false, Vector2(-10, -10), "P03"], [99, false, Vector2(-10, -10), "P04"], [99, false, Vector2(-90, -50), "P05"], [99, false, Vector2(110, 30), "P05"]]:
 		var world := LevelWorld.new(spec[0], spec[3] if spec.size() > 3 else "C01")
 		world.geo_test = spec[1]
 		var actual := SpanMap.build(world, spec[2], 480, 0.125)
@@ -49,5 +49,5 @@ func run() -> void:
 	check(baker._span_cache.size() == 8 and baker._span_order.size() == 8, "cache memory remains bounded")
 	baker.free()
 	if failures == 0:
-		print("PASS: span maps — 1843200 columns, sliced raster, world isolation and bounded cache")
+		print("PASS: span maps — 2304000 columns, sliced raster, world isolation and bounded cache")
 	quit(1 if failures else 0)

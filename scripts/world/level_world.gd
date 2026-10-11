@@ -4,8 +4,8 @@ extends RefCounted
 ## by meshing, collision and lighting. The 2.5 m cell is only a spatial index
 ## and the unit of the classic baseline maze.
 ##
-## C01/C02 reserve 17.5 m, P01–P04 reserve 27.5 m for a composed/assembled promenade.
-## The selected site replaces part of the classic maze in chunk zero. Site exits
+## C01/C02 reserve 17.5 m, P01–P05 reserve 27.5 m for a composed/assembled promenade.
+## P05 distributes reservations over the streamed world. Site exits
 ## always face odd maze cells, which the maze spanning tree reaches.
 
 const CELL := 2.5
@@ -65,12 +65,13 @@ var version_hash := Hashing.text(VERSION)
 var composition := "C01"
 ## The composed promenade reserves a larger footprint; baselines retain SITE.
 var site := SITE
-var _ceiling_cells := {}
 var spawn: Dictionary
 var views := {}
 var composition_report := {}
 var site_grid: PackedByteArray
 
+## Materialized reservations, including empty chunks; pruned with geometry.
+var _reservations := {}
 var _chunks := {}
 var _maze_boxes := {}
 ## Panels switched off for good during the exploration (fixture id -> true).
@@ -79,18 +80,14 @@ var panels_off := {}
 ## check the lighting of varied room spaces against Cycles.
 var geo_test := false
 var _maze_fixtures := {}
-var _site_index := {}
-var _site_fixture_index := {}
-var _site_boxes: Array[Box] = []
-var _site_fixtures: Array[Fixture] = []
 
 
 func _init(p_seed: int, p_composition := "C01") -> void:
 	seed = Hashing.u32(p_seed)
-	composition = p_composition if p_composition in ["C01", "C02", "P01", "P02", "P03", "P04"] else "C01"
-	if composition in ["P01", "P02", "P03", "P04"]:
+	composition = p_composition if p_composition in ["C01", "C02", "P01", "P02", "P03", "P04", "P05"] else "C01"
+	if composition in ["P01", "P02", "P03", "P04", "P05"]:
 		site = Rect2i(2, 2, 11, 11)
-		version = "level0-godot.6-P04" if composition == "P04" else "level0-godot.5-P03" if composition == "P03" else "level0-godot.4-P02" if composition == "P02" else "level0-godot.3-P01"
+		version = "level0-godot.7-P05" if composition == "P05" else "level0-godot.6-P04" if composition == "P04" else "level0-godot.5-P03" if composition == "P03" else "level0-godot.4-P02" if composition == "P02" else "level0-godot.3-P01"
 		version_hash = Hashing.text(version)
 	if composition == "C02":
 		version = "level0-godot.2-C02"
@@ -117,10 +114,6 @@ func channel(domain: String, ids: Array = []) -> int:
 
 # --- Classic maze -----------------------------------------------------------
 
-func _in_site(cx: int, cz: int, x: int, z: int) -> bool:
-	return cx == 0 and cz == 0 and site.has_point(Vector2i(x, z))
-
-
 var _rng := 1
 
 
@@ -136,6 +129,7 @@ func chunk_at(cx: int, cz: int) -> PackedByteArray:
 	var key := Vector2i(cx, cz)
 	if _chunks.has(key):
 		return _chunks[key]
+	var reservation := reservation_rect(cx, cz)
 	_rng = hash_cell(cx, cz, 3107)
 	if _rng == 0:
 		_rng = 1
@@ -150,7 +144,7 @@ func chunk_at(cx: int, cz: int) -> PackedByteArray:
 		var choices: Array[int] = []
 		for d in 4:
 			var n: Vector2i = p + DIRS[d] * 2
-			if n.x > 0 and n.y > 0 and n.x < CHUNK and n.y < CHUNK and cells[n.y * CHUNK + n.x] == 1 and not _in_site(cx, cz, n.x, n.y):
+			if n.x > 0 and n.y > 0 and n.x < CHUNK and n.y < CHUNK and cells[n.y * CHUNK + n.x] == 1 and not reservation.has_point(n):
 				choices.append(d)
 		if choices.is_empty():
 			stack.pop_back()
@@ -165,8 +159,8 @@ func chunk_at(cx: int, cz: int) -> PackedByteArray:
 	cells[(1 + 2 * (hash_cell(cx, cz, 101) % 8)) * CHUNK] = 0
 	cells[1 + 2 * (hash_cell(cx, cz, 202) % 8)] = 0
 	var rooms: Array[Rect2i] = []
-	if cx == 0 and cz == 0:
-		rooms.append(site)
+	if reservation.has_area():
+		rooms.append(reservation)
 	var reserved := rooms.size()
 	for attempt in 80:
 		if rooms.size() - reserved >= 3:
@@ -189,7 +183,7 @@ func chunk_at(cx: int, cz: int) -> PackedByteArray:
 				cells[(z + dz) * CHUNK + x + dx] = 0
 	for z in CHUNK:
 		for x in CHUNK:
-			if _in_site(cx, cz, x, z):
+			if reservation.has_point(Vector2i(x, z)):
 				cells[z * CHUNK + x] = 2
 	_clean(cells)
 	var packed := PackedByteArray(cells)
@@ -287,6 +281,10 @@ func prune(cx: int, cz: int, keep := 4) -> void:
 	for key in _chunks.keys():
 		if absi(key.x - cx) > keep or absi(key.y - cz) > keep:
 			_chunks.erase(key)
+	for key in _reservations.keys():
+		if key == Vector2i.ZERO: continue
+		if absi(key.x - cx) > keep or absi(key.y - cz) > keep:
+			_reservations.erase(key)
 	for cache in [_maze_boxes, _maze_fixtures]:
 		for key in cache.keys():
 			if absi(floori(float(key.x) / CHUNK) - cx) > keep or absi(floori(float(key.y) / CHUNK) - cz) > keep:
@@ -295,79 +293,125 @@ func prune(cx: int, cz: int, keep := 4) -> void:
 
 # --- Composition site -----------------------------------------------------------------
 
+## Pure placement contract: one owner per 2x2 chunk district. 27.5m sites
+## remain inside their 40m chunk, leaving the classic edge spine untouched.
+func reservation_rect(cx: int, cz: int) -> Rect2i:
+	if cx == 0 and cz == 0: return site
+	if composition != "P05": return Rect2i()
+	var district := Vector2i(floori(float(cx) / 2), floori(float(cz) / 2))
+	var choice: int = 0 if district == Vector2i.ZERO else channel("P05.placement", [district.x, district.y]) % 4
+	var owner := district * 2 + Vector2i(choice % 2, choice / 2)
+	return site if owner == Vector2i(cx, cz) else Rect2i()
+
+
+## Metadata can be queried before meshes/bakes and in any order.
+func reservation_at(cx: int, cz: int) -> Dictionary:
+	var key := Vector2i(cx, cz)
+	if _reservations.has(key): return _reservations[key]
+	if not reservation_rect(cx, cz).has_area():
+		_reservations[key] = {}
+		return {}
+	var data := _build_reservation(key)
+	_reservations[key] = data
+	return data
+
+
 func _build_site() -> void:
+	var data := reservation_at(0, 0)
+	site_grid = data.grid
+	views = data.views
+	spawn = data.spawn
+	composition_report = data.report
+
+
+func _build_reservation(owner: Vector2i) -> Dictionary:
+	var ceiling_cells := {}
+	var site_boxes: Array[Box] = []
+	var site_fixtures: Array[Fixture] = []
+	var site_index := {}
+	var site_fixture_index := {}
+	var site_views := {}
+	var prefix := "" if owner == Vector2i.ZERO else "r%d,%d:" % [owner.x, owner.y]
+	var origin_cell := owner * CHUNK + site.position
 	var w := int(site.size.x * CELL / Compositions.Q)
 	var d := int(site.size.y * CELL / Compositions.Q)
-	var pick := func(domain: String, n: int) -> int: return channel(composition + "." + domain) % n
+	var pick := func(domain: String, n: int) -> int: return channel(composition + "." + domain, [owner.x, owner.y] if composition == "P05" else []) % n
 	var c: Dictionary
 	match composition:
-		"P04": c = SpatialAssembler.build(pick, w, d)
+		"P04", "P05": c = SpatialAssembler.build(pick, w, d)
 		"P03": c = PromenadeAssembler.build_varied(pick, w, d)
 		"P02": c = PromenadeAssembler.build(pick, w, d)
 		"P01": c = Compositions.p01(pick, w, d)
 		"C02": c = Compositions.c02(pick, w, d)
 		_: c = Compositions.c01(pick, w, d)
 	var resolved := Compositions.resolve(c, w, d)
-	site_grid = resolved.grid
-	var ox := site.position.x * CELL
-	var oz := site.position.y * CELL
+	var ox := origin_cell.x * CELL
+	var oz := origin_cell.y * CELL
 	var Q := Compositions.Q
 	for region in c.get("ceiling_regions", []):
 		var r: Array = region.rect
 		for z in range(int(r[1] * Q / CELL), int(r[3] * Q / CELL)):
 			for x in range(int(r[0] * Q / CELL), int(r[2] * Q / CELL)):
-				_ceiling_cells[site.position + Vector2i(x, z)] = float(region.height)
+				ceiling_cells[origin_cell + Vector2i(x, z)] = float(region.height)
 	var i := 0
 	for r in resolved.boxes:
-		var b := Box.new("s%d" % i, "wall", ox + r[0] * Q, oz + r[1] * Q, ox + r[2] * Q, oz + r[3] * Q)
+		var b := Box.new(prefix + "s%d" % i, "wall", ox + r[0] * Q, oz + r[1] * Q, ox + r[2] * Q, oz + r[3] * Q)
 		b.y1 = c.height
-		_site_boxes.append(b)
+		site_boxes.append(b)
 		i += 1
 	i = 0
 	for l in c.lintels:
 		var r: Array = l.rect
-		var b := Box.new("l%d" % i, "lintel", ox + r[0] * Q, oz + r[1] * Q, ox + r[2] * Q, oz + r[3] * Q)
+		var b := Box.new(prefix + "l%d" % i, "lintel", ox + r[0] * Q, oz + r[1] * Q, ox + r[2] * Q, oz + r[3] * Q)
 		b.y0 = l.y0
 		b.y1 = l.y1
 		b.occluder = false
-		_site_boxes.append(b)
+		site_boxes.append(b)
 		i += 1
 	for f in resolved.fixtures:
 		var r: Array = f.rect
 		var fx := Fixture.new()
-		fx.id = "c%d" % f.key
+		fx.id = prefix + "c%d" % f.key
 		fx.x = ox + (r[0] + r[2]) * 0.5 * Q
 		fx.z = oz + (r[1] + r[3]) * 0.5 * Q
 		fx.x0 = fx.x - PANEL * 0.5
 		fx.z0 = fx.z - PANEL * 0.5
 		fx.x1 = fx.x + PANEL * 0.5
 		fx.z1 = fx.z + PANEL * 0.5
-		fx.seed = channel(composition + ".fixtures", [f.key])
-		fx.y = ceiling_height(floori(fx.x / CELL), floori(fx.z / CELL))
-		_site_fixtures.append(fx)
-	for b in _site_boxes:
+		fx.seed = channel(composition + ".fixtures", [owner.x, owner.y, f.key] if composition == "P05" else [f.key])
+		fx.y = ceiling_cells.get(Vector2i(floori(fx.x / CELL), floori(fx.z / CELL)), HEIGHT)
+		site_fixtures.append(fx)
+	for b in site_boxes:
 		for z in range(floori(b.z0 / CELL), floori((b.z1 - EPS) / CELL) + 1):
 			for x in range(floori(b.x0 / CELL), floori((b.x1 - EPS) / CELL) + 1):
 				var k := Vector2i(x, z)
-				if not _site_index.has(k):
-					_site_index[k] = []
-				_site_index[k].append(b)
-	for f in _site_fixtures:
+				if not site_index.has(k):
+					site_index[k] = []
+				site_index[k].append(b)
+	for f in site_fixtures:
 		var k := Vector2i(floori(f.x / CELL), floori(f.z / CELL))
-		if not _site_fixture_index.has(k):
-			_site_fixture_index[k] = []
-		_site_fixture_index[k].append(f)
+		if not site_fixture_index.has(k):
+			site_fixture_index[k] = []
+		site_fixture_index[k].append(f)
 	for key in c.views:
 		var v: Dictionary = c.views[key]
-		views[key] = {"position": Vector3(ox + v.x * Q, 0.0, oz + v.z * Q), "yaw": v.yaw, "label": v.label}
-	spawn = views[c.spawn]
+		site_views[key] = {"position": Vector3(ox + v.x * Q, 0.0, oz + v.z * Q), "yaw": v.yaw, "label": v.label}
+	var site_spawn: Dictionary = site_views[c.spawn]
 	var exits := []
 	for f in c.free:
 		if f.has("exit"):
 			var r: Array = f.rect
 			exits.append({"name": f.name, "side": f.exit, "x0": ox + r[0] * Q, "z0": oz + r[1] * Q, "x1": ox + r[2] * Q, "z1": oz + r[3] * Q})
-	composition_report = {"id": c.id, "name": c.name, "variant": c.variant, "exits": exits,
-		"site": Rect2(ox, oz, site.size.x * CELL, site.size.y * CELL), "boxes": _site_boxes.size(), "fixtures": _site_fixtures.size(), "assembly": c.get("assembly", {})}
+	var report := {"id": c.id, "name": c.name, "variant": c.variant, "exits": exits,
+		"site": Rect2(ox, oz, site.size.x * CELL, site.size.y * CELL), "boxes": site_boxes.size(), "fixtures": site_fixtures.size(), "assembly": c.get("assembly", {})}
+
+	if composition == "P05":
+		report["id"] = "P05"
+		report["name"] = "Parcours distribues"
+	report["owner"] = owner
+	return {"grid": resolved.grid, "ceilings": ceiling_cells, "boxes": site_boxes,
+		"fixtures": site_fixtures, "index": site_index, "fixture_index": site_fixture_index,
+		"views": site_views, "spawn": site_spawn, "report": report}
 
 
 # --- Queries ------------------------------------------------------------------
@@ -376,7 +420,7 @@ func _build_site() -> void:
 func cell_boxes(x: int, z: int) -> Array:
 	var kind := cell_kind(x, z)
 	if kind == 2:
-		return _site_index.get(Vector2i(x, z), [])
+		return reservation_at(floori(float(x) / CHUNK), floori(float(z) / CHUNK)).index.get(Vector2i(x, z), [])
 	if kind != 1:
 		return _test_boxes(x, z) if geo_test else []
 	var k := Vector2i(x, z)
@@ -427,7 +471,7 @@ func light_density(x: int, z: int) -> float:
 func cell_fixtures(x: int, z: int) -> Array:
 	var kind := cell_kind(x, z)
 	if kind == 2:
-		return _site_fixture_index.get(Vector2i(x, z), [])
+		return reservation_at(floori(float(x) / CHUNK), floori(float(z) / CHUNK)).fixture_index.get(Vector2i(x, z), [])
 	if kind != 0:
 		return []
 	var k := Vector2i(x, z)
@@ -454,13 +498,14 @@ func cell_fixtures(x: int, z: int) -> Array:
 
 
 ## Floor and ceiling heights of a cell (the room's solid slabs, see SpanMap).
-## C01 and the classic maze are flat; C02/P01–P04 supply cell-aligned ceilings.
+## C01 and the classic maze are flat; C02/P01–P05 supply cell-aligned ceilings.
 func floor_height(_x: int, _z: int) -> float:
 	return 0.0
 
 
 func ceiling_height(x: int, z: int) -> float:
-	return _ceiling_cells.get(Vector2i(x, z), HEIGHT)
+	var data := reservation_at(floori(float(x) / CHUNK), floori(float(z) / CHUNK))
+	return data.get("ceilings", {}).get(Vector2i(x, z), HEIGHT)
 
 
 ## Exposed faces of a ceiling step, owned by the higher cell. Shared by the

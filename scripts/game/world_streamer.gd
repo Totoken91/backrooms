@@ -36,6 +36,7 @@ const SLOTS := 7
 const MAPS := 11
 var light_maps := Texture2DArray.new()
 var ao_maps := Texture2DArray.new()
+var room_maps := Texture2DArray.new()
 var slot_chunk := PackedVector2Array()
 var _black: Image
 var _white: Image
@@ -58,6 +59,11 @@ func _ready() -> void:
 	for i in SLOTS * SLOTS:
 		ao_layers.append(_white)
 	ao_maps.create_from_images(ao_layers)
+	var room_layers: Array[Image] = []
+	var default_room := Image.create(LevelWorld.CHUNK, LevelWorld.CHUNK, false, Image.FORMAT_RGBAF)
+	default_room.fill(Color(0, LevelWorld.HEIGHT, 0, 0))
+	for i in SLOTS * SLOTS: room_layers.append(default_room)
+	room_maps.create_from_images(room_layers)
 	slot_chunk.resize(SLOTS * SLOTS)
 	slot_chunk.fill(Vector2(1e6, 1e6))
 
@@ -87,6 +93,8 @@ func _bind() -> void:
 		if m is ShaderMaterial:
 			m.set_shader_parameter("light_maps", light_maps)
 			m.set_shader_parameter("ao_maps", ao_maps)
+			m.set_shader_parameter("chunk_room_heights", room_maps)
+			m.set_shader_parameter("streamed_room_heights", true)
 	if baker:
 		baker.bind_light_maps(light_maps)
 	_publish_slots()
@@ -96,6 +104,7 @@ func _publish_slots() -> void:
 	for m in materials.values():
 		if m is ShaderMaterial:
 			m.set_shader_parameter("slot_chunk", slot_chunk)
+			m.set_shader_parameter("room_slot_chunk", slot_chunk)
 	if baker:
 		baker.set_slots(slot_chunk)
 
@@ -123,6 +132,12 @@ func _upload(chunk: Chunk, what := "all") -> void:
 		for i in 3:
 			light_maps.update_layer(shown[i] if i < shown.size() else _black, base + 8 + i)
 	if not owned:
+		var heights := Image.create(LevelWorld.CHUNK, LevelWorld.CHUNK, false, Image.FORMAT_RGBAF)
+		for z in LevelWorld.CHUNK:
+			for x in LevelWorld.CHUNK:
+				var cell := k * LevelWorld.CHUNK + Vector2i(x, z)
+				heights.set_pixel(x, z, Color(world.floor_height(cell.x, cell.y), world.ceiling_height(cell.x, cell.y), 0, 0))
+		room_maps.update_layer(heights, slot)
 		slot_chunk[slot] = Vector2(k)
 		_publish_slots()
 

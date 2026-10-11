@@ -85,6 +85,15 @@ func _ready() -> void:
 		lights.force = Vector3.ONE * float(options.flicker)
 	player.stepped.connect(ambience.step)
 	new_exploration(int(options.seed) if options.has("seed") else -1)
+	# QA: inspect a distributed reservation without editing the generation.
+	if options.has("site"):
+		var parts := str(options.site).split(",")
+		var data := world.reservation_at(int(parts[0]), int(parts[1]))
+		if data.is_empty():
+			printerr("Requested chunk has no reservation: ", options.site)
+			get_tree().quit(1)
+			return
+		world.views = data.views.duplicate(true)
 	# Development: arbitrary viewpoint, at=x,z,yaw (metres, radians).
 	if options.has("at"):
 		var a := str(options.at).split(",")
@@ -378,23 +387,11 @@ func _read_options() -> Dictionary:
 
 func new_exploration(seed := -1) -> void:
 	var value := seed if seed >= 0 else LevelWorld.fresh_seed(world.seed if world else -1)
-	world = LevelWorld.new(value, str(options.get("composition", "P04")))
+	world = LevelWorld.new(value, str(options.get("composition", "P05")))
 	world.geo_test = options.has("geotest")
 	player.flashlight.enabled = options.get("flashlight", "0") == "1"
 	flashlight_projector.configure(world, player, streamer.materials)
 	lights.world = world
-	# Finite composition metadata for the surface shader; outside this site the
-	# classic ceiling is unchanged. Bake metadata comes from the same queries.
-	var heights := Image.create(world.site.size.x, world.site.size.y, false, Image.FORMAT_RGBAF)
-	for z in world.site.size.y:
-		for x in world.site.size.x:
-			var c := world.site.position + Vector2i(x, z)
-			heights.set_pixel(x, z, Color(world.floor_height(c.x, c.y), world.ceiling_height(c.x, c.y), 0, 0))
-	var height_texture := ImageTexture.create_from_image(heights)
-	for m in streamer.materials.values():
-		m.set_shader_parameter("room_heights", height_texture)
-		m.set_shader_parameter("room_origin", Vector2(world.site.position) * LevelWorld.CELL)
-		m.set_shader_parameter("has_room_heights", true)
 	streamer.reset(world)
 	player.place(world.spawn.position, world.spawn.yaw)
 	if not options.has("export_scene"):

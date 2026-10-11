@@ -1,5 +1,17 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**P05 — réservations distribuées :** [architecture et validation](docs/P05_DISTRIBUTED_RESERVATIONS_2026-10-11.md).
+Nouvelle composition par défaut : un site de six modules par secteur de
+80 × 80 m ; placement et variantes par graine, cache élagué, IDs de néons
+uniques et extinction conservée au retour. Trois sorties vers la circulation
+classique. Métadonnées de plafond GPU distribuées dans les 49 slots de streaming,
+avec contrôle du propriétaire ; SpanMap/bakes/lampe suivent les volumes distants.
+72 réservations auditées, treize suites passent (oracle SpanMap 2 304 000 colonnes).
+Six captures natives de sites distants inspectées, bloom conservé, zéro attente.
+Web local distant : 111 bakes, zéro attente, console propre, rendu contrôlé.
+Les ensembles gardent la grille P04 : suite, profils et organisations macro
+variées, puis réservations sur plusieurs chunks. Aucun push ni déploiement.
+
 **Correctifs éclairage et rebonds de lampe :** [reproduction, causes et validation](docs/LIGHTING_ARTIFACTS_AND_FLASHLIGHT_BOUNCE_2026-10-11.md).
 Graine utilisateur 1601967012 : coupure murale corrigée par reconstruction des
 hauteurs avant interpolation ; PCF corrigé par plan récepteur pour les stries.

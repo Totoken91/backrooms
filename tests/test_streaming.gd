@@ -2,6 +2,8 @@ extends SceneTree
 ## Real streaming scheduler and GPU slot uploads, with deterministic delayed
 ## bake data. Isolates lifetime/invalidation races from transport accuracy.
 var failures := 0
+var metadata_baker: LightBaker
+var metadata_material: ShaderMaterial
 
 class DelayedBaker extends LightBaker:
 	var images := {}
@@ -68,14 +70,33 @@ func settled(s: WorldStreamer, p: Vector3) -> void:
 			var expected: Array = s.baker.tiles(s.world, k, 5)
 			check(c.direct[0].get_data() == expected[0].get_data(), "direct current %s" % k)
 			check(s.light_maps.get_layer_data(s.slot_of(k) * s.MAPS).get_data() == expected[0].get_data(), "GPU slot current %s" % k)
+			metadata_material.set_shader_parameter("chunk_room_heights",s.room_maps)
+			metadata_material.set_shader_parameter("room_slot_chunk",s.slot_chunk)
+			metadata_material.set_shader_parameter("origin",Vector2(k)*40.0)
+			var rendered: Array = await metadata_baker._render(metadata_material,0)
+			var room: Image = rendered[0]
+			for rz in LevelWorld.CHUNK:
+				for rx in LevelWorld.CHUNK:
+					var cell := k*LevelWorld.CHUNK+Vector2i(rx,rz)
+					var actual := room.get_pixel(int((rx+0.5)*room.get_width()/16),int((rz+0.5)*room.get_height()/16)).r*8.0
+					check(absf(actual-s.world.ceiling_height(cell.x,cell.y))<0.04,"GPU structural ceiling current %s" % k)
+
 
 func run() -> void:
+	metadata_baker = LightBaker.new()
+	root.add_child(metadata_baker)
+	var shader := Shader.new()
+	shader.code = "shader_type canvas_item; render_mode blend_disabled;\n#include \"res://shaders/structural_room.gdshaderinc\"\nuniform vec2 origin; uniform float sample_resolution; void fragment(){vec2 p=origin+(floor(FRAGCOORD.xy/sample_resolution*16.0)+0.5)*2.5;COLOR=vec4(vec3(structural_ceiling(p,3.2)/8.0),1.0);}"
+	metadata_material = ShaderMaterial.new()
+	metadata_material.shader = shader
+	metadata_material.set_shader_parameter("streamed_room_heights",true)
+	metadata_material.set_shader_parameter("sample_resolution",float(LightBaker.RES))
 	var s := Scheduler.new()
 	var b := DelayedBaker.new()
 	root.add_child(b)
 	root.add_child(s)
 	s.baker = b
-	s.reset(LevelWorld.new(99))
+	s.reset(LevelWorld.new(99,"P05"))
 	await settled(s, Vector3.ZERO)
 	# Extinction during a direct pass must not accept the older snapshot.
 	var c: Chunk = s.chunks[Vector2i.ZERO]
@@ -114,9 +135,10 @@ func run() -> void:
 	c = s.chunks[Vector2i.ZERO]
 	c.relight = 1
 	s._bake_direct(c)
-	s.reset(LevelWorld.new(7))
+	s.reset(LevelWorld.new(7,"P05"))
 	await settled(s, Vector3.ZERO)
 	check(s.world.panels_off.is_empty(), "new world has independent panel state")
+	metadata_baker.queue_free()
 	s.queue_free()
 	b.queue_free()
 	await process_frame
