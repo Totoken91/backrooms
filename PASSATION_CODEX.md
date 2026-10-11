@@ -1,5 +1,16 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**P01 : enfilades et salle à piliers jouables :** [plan, architecture et validation](docs/P01_PROMENADE_2026-10-11.md).
+Nouveau départ : passage bas → seuils décalés → salle à neuf piliers, deux
+liaisons formant une boucle et trois sorties vers le labyrinthe. Réservation
+27,5 × 27,5 m, plafonds 2,2 / 3,2 / 4,8 m. `LevelWorld.site` décrit désormais
+la réservation de l'instance ; C01/C02 gardent leur site, versions et canaux.
+Sept suites passées ; cinq vues natives inspectées. Web local : 99 passes,
+zéro attente, console propre ; onglet/serveur temporaires fermés.
+P01 reste un parcours fixe (néons/labyrinthe varient par graine), pas un
+assembleur procédural. Suite : contrats de raccord puis assemblage par graine.
+Aucun push ni déploiement.
+
 **C02 jouable et plafonds variables :** [composition pilote, architecture et validation](docs/C02_VARIABLE_CEILINGS_2026-10-11.md).
 Le jeu démarre désormais dans un passage à 2,2 m ouvrant sur une pièce à 4,8 m.
 Trois sorties vers le labyrinthe ; variantes miroir/néons par graine. Panneaux,

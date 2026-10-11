@@ -319,20 +319,20 @@ func _read_options() -> Dictionary:
 
 func new_exploration(seed := -1) -> void:
 	var value := seed if seed >= 0 else LevelWorld.fresh_seed(world.seed if world else -1)
-	world = LevelWorld.new(value, str(options.get("composition", "C02")))
+	world = LevelWorld.new(value, str(options.get("composition", "P01")))
 	world.geo_test = options.has("geotest")
 	lights.world = world
 	# Finite composition metadata for the surface shader; outside this site the
 	# classic ceiling is unchanged. Bake metadata comes from the same queries.
-	var heights := Image.create(LevelWorld.SITE.size.x, LevelWorld.SITE.size.y, false, Image.FORMAT_RGBAF)
-	for z in LevelWorld.SITE.size.y:
-		for x in LevelWorld.SITE.size.x:
-			var c := LevelWorld.SITE.position + Vector2i(x, z)
+	var heights := Image.create(world.site.size.x, world.site.size.y, false, Image.FORMAT_RGBAF)
+	for z in world.site.size.y:
+		for x in world.site.size.x:
+			var c := world.site.position + Vector2i(x, z)
 			heights.set_pixel(x, z, Color(world.floor_height(c.x, c.y), world.ceiling_height(c.x, c.y), 0, 0))
 	var height_texture := ImageTexture.create_from_image(heights)
 	for m in streamer.materials.values():
 		m.set_shader_parameter("room_heights", height_texture)
-		m.set_shader_parameter("room_origin", Vector2(LevelWorld.SITE.position) * LevelWorld.CELL)
+		m.set_shader_parameter("room_origin", Vector2(world.site.position) * LevelWorld.CELL)
 		m.set_shader_parameter("has_room_heights", true)
 	streamer.reset(world)
 	player.place(world.spawn.position, world.spawn.yaw)

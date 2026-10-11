@@ -4,8 +4,8 @@ extends RefCounted
 ## by meshing, collision and lighting. The 2.5 m cell is only a spatial index
 ## and the unit of the classic baseline maze.
 ##
-## C01 baseline / C02 height-contrast pilot: classic maze except a reserved
-## 17.5 m site at the origin holding the selected composition (spawn). Site exits
+## C01/C02 reserve 17.5 m, P01 reserves 27.5 m for a composed promenade.
+## The selected site replaces part of the classic maze in chunk zero. Site exits
 ## always face odd maze cells, which the maze spanning tree reaches.
 
 const CELL := 2.5
@@ -63,6 +63,8 @@ var seed: int
 var version := VERSION
 var version_hash := Hashing.text(VERSION)
 var composition := "C01"
+## The composed promenade reserves a larger footprint; baselines retain SITE.
+var site := SITE
 var _ceiling_cells := {}
 var spawn: Dictionary
 var views := {}
@@ -85,7 +87,11 @@ var _site_fixtures: Array[Fixture] = []
 
 func _init(p_seed: int, p_composition := "C01") -> void:
 	seed = Hashing.u32(p_seed)
-	composition = "C02" if p_composition == "C02" else "C01"
+	composition = p_composition if p_composition in ["C01", "C02", "P01"] else "C01"
+	if composition == "P01":
+		site = Rect2i(2, 2, 11, 11)
+		version = "level0-godot.3-P01"
+		version_hash = Hashing.text(version)
 	if composition == "C02":
 		version = "level0-godot.2-C02"
 		version_hash = Hashing.text(version)
@@ -112,7 +118,7 @@ func channel(domain: String, ids: Array = []) -> int:
 # --- Classic maze -----------------------------------------------------------
 
 func _in_site(cx: int, cz: int, x: int, z: int) -> bool:
-	return cx == 0 and cz == 0 and SITE.has_point(Vector2i(x, z))
+	return cx == 0 and cz == 0 and site.has_point(Vector2i(x, z))
 
 
 var _rng := 1
@@ -160,7 +166,7 @@ func chunk_at(cx: int, cz: int) -> PackedByteArray:
 	cells[1 + 2 * (hash_cell(cx, cz, 202) % 8)] = 0
 	var rooms: Array[Rect2i] = []
 	if cx == 0 and cz == 0:
-		rooms.append(SITE)
+		rooms.append(site)
 	var reserved := rooms.size()
 	for attempt in 80:
 		if rooms.size() - reserved >= 3:
@@ -287,23 +293,27 @@ func prune(cx: int, cz: int, keep := 4) -> void:
 				cache.erase(key)
 
 
-# --- C01 site -----------------------------------------------------------------
+# --- Composition site -----------------------------------------------------------------
 
 func _build_site() -> void:
-	var w := int(SITE.size.x * CELL / Compositions.Q)
-	var d := int(SITE.size.y * CELL / Compositions.Q)
+	var w := int(site.size.x * CELL / Compositions.Q)
+	var d := int(site.size.y * CELL / Compositions.Q)
 	var pick := func(domain: String, n: int) -> int: return channel(composition + "." + domain) % n
-	var c := Compositions.c02(pick, w, d) if composition == "C02" else Compositions.c01(pick, w, d)
+	var c: Dictionary
+	match composition:
+		"P01": c = Compositions.p01(pick, w, d)
+		"C02": c = Compositions.c02(pick, w, d)
+		_: c = Compositions.c01(pick, w, d)
 	var resolved := Compositions.resolve(c, w, d)
 	site_grid = resolved.grid
-	var ox := SITE.position.x * CELL
-	var oz := SITE.position.y * CELL
+	var ox := site.position.x * CELL
+	var oz := site.position.y * CELL
 	var Q := Compositions.Q
 	for region in c.get("ceiling_regions", []):
 		var r: Array = region.rect
 		for z in range(int(r[1] * Q / CELL), int(r[3] * Q / CELL)):
 			for x in range(int(r[0] * Q / CELL), int(r[2] * Q / CELL)):
-				_ceiling_cells[SITE.position + Vector2i(x, z)] = float(region.height)
+				_ceiling_cells[site.position + Vector2i(x, z)] = float(region.height)
 	var i := 0
 	for r in resolved.boxes:
 		var b := Box.new("s%d" % i, "wall", ox + r[0] * Q, oz + r[1] * Q, ox + r[2] * Q, oz + r[3] * Q)
@@ -354,7 +364,7 @@ func _build_site() -> void:
 			var r: Array = f.rect
 			exits.append({"name": f.name, "side": f.exit, "x0": ox + r[0] * Q, "z0": oz + r[1] * Q, "x1": ox + r[2] * Q, "z1": oz + r[3] * Q})
 	composition_report = {"id": c.id, "name": c.name, "variant": c.variant, "exits": exits,
-		"site": Rect2(ox, oz, SITE.size.x * CELL, SITE.size.y * CELL), "boxes": _site_boxes.size(), "fixtures": _site_fixtures.size()}
+		"site": Rect2(ox, oz, site.size.x * CELL, site.size.y * CELL), "boxes": _site_boxes.size(), "fixtures": _site_fixtures.size()}
 
 
 # --- Queries ------------------------------------------------------------------
@@ -441,7 +451,7 @@ func cell_fixtures(x: int, z: int) -> Array:
 
 
 ## Floor and ceiling heights of a cell (the room's solid slabs, see SpanMap).
-## C01 and the classic maze are flat; C02 supplies cell-aligned ceiling regions.
+## C01 and the classic maze are flat; C02/P01 supply cell-aligned ceilings.
 func floor_height(_x: int, _z: int) -> float:
 	return 0.0
 

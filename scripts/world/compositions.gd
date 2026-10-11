@@ -141,6 +141,57 @@ static func c02(pick: Callable, site_w: int, site_d: int) -> Dictionary:
 	}
 
 
+## P01: a finite promenade, not a procedural assembler. Three staggered
+## thresholds lead to a tall pillar hall, joined at both ends to form a loop.
+## All roofs remain cell-aligned; the two earlier pilots stay untouched.
+static func p01(pick: Callable, site_w: int, site_d: int) -> Dictionary:
+	var free := [
+		{"name": "enfilade", "rect": [q(1.25), q(1.25), q(9.375), q(20)]},
+		{"name": "hall", "rect": [q(10), q(1.25), q(26.25), q(15)]},
+		{"name": "north_link", "rect": [q(9.375), q(2.875), q(10), q(4.625)]},
+		{"name": "south_link", "rect": [q(9.375), q(12.875), q(10), q(14.625)]},
+		{"name": "E1", "rect": [q(3.125), q(20), q(4.875), site_d], "exit": "south"},
+		{"name": "E2", "rect": [0, q(3.125), q(1.25), q(4.875)], "exit": "west"},
+		{"name": "E3", "rect": [q(26.25), q(13.125), site_w, q(14.875)], "exit": "east"},
+	]
+	var solid := []
+	for spec in [[6.25, 3.125], [11.25, 6.875], [16.25, 3.125]]:
+		var z: float = spec[0]
+		var opening: float = spec[1]
+		solid.append({"rect": [q(1.25), q(z), q(opening), q(z + 0.625)]})
+		solid.append({"rect": [q(opening + 1.75), q(z), q(9.375), q(z + 0.625)]})
+	for z in [3.75, 8.75, 13.75]:
+		for x in [13.75, 18.75, 23.75]:
+			solid.append({"rect": [q(x - 0.625), q(z - 0.625), q(x + 0.625), q(z + 0.625)]})
+	var fixtures := []
+	var cell := q(LevelWorld.CELL)
+	for zi in range(site_d / cell):
+		for xi in range(site_w / cell):
+			var key := xi + zi * 64
+			# A sparse, reproducible failure pattern; no random blackout wall.
+			if pick.call("fixtures.hole.%d" % key, 100) < 8: continue
+			var cx := xi * cell + cell / 2
+			var cz := zi * cell + cell / 2
+			fixtures.append({"rect": [cx - 3, cz - 3, cx + 3, cz + 3], "key": key})
+	return {
+		"id": "P01", "name": "Enfilades et salle à piliers", "height": 4.8,
+		"variant": {"layout": "composed_loop"}, "free": free, "solid": solid,
+		"lintels": [], "fixtures": fixtures, "spawn": "entry", "fixture_margin": q(0.25),
+		"views": {
+			"entry": {"x": q(4), "z": q(26), "yaw": 0.0, "label": "Passage bas vers la première pièce"},
+			"enfilade": {"x": q(4), "z": q(19), "yaw": 0.0, "label": "Seuils décalés : la suite reste masquée"},
+			"reveal": {"x": q(8), "z": q(13.75), "yaw": PI / 2, "label": "Ouverture latérale sur les piliers"},
+			"pillars": {"x": q(11.25), "z": q(6.25), "yaw": 1.15, "label": "Répétition et profondeur dans la salle haute"},
+			"return": {"x": q(25), "z": q(11.25), "yaw": -1.2, "label": "Contrechamp vers les deux liaisons"},
+		},
+		"ceiling_regions": [
+			{"rect": [0, 0, site_w, site_d], "height": 3.2},
+			{"rect": [q(10), 0, site_w, q(15)], "height": 4.8},
+			{"rect": [0, q(20), site_w, site_d], "height": 2.2},
+		],
+	}
+
+
 ## Occupancy and a deterministic, non-overlapping rectangle cover of the solid
 ## parts of a site. Rows of equal runs merge vertically.
 static func resolve(c: Dictionary, w: int, d: int) -> Dictionary:
