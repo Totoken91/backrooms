@@ -6,24 +6,15 @@ render_mode blend_disabled;
 // jittered direct and gather passes, like a lightmapper's denoiser.
 
 uniform sampler2D src : filter_nearest, repeat_disable;
-uniform sampler2D occ_tex : filter_nearest, repeat_disable;
-uniform vec2 occ_origin;
-uniform float occ_texel = 0.125;
-uniform vec2 occ_size;
+#include "res://shaders/spans.gdshaderinc"
 uniform float texel = 0.25;
 uniform float tiles = 3.0;
 uniform float res = 160.0;
 uniform int radius = 2;
 uniform float sigma = 1.2;
 
-float occupied(vec2 p) {
-	vec2 t = (p - occ_origin) / occ_texel;
-	if (t.x < 0.0 || t.y < 0.0 || t.x >= occ_size.x || t.y >= occ_size.y) return 0.0;
-	return texelFetch(occ_tex, ivec2(t), 0).r;
-}
-
 void fragment() {
-	vec2 cell = floor(UV * vec2(res * tiles, res));
+	vec2 cell = bake_cell(UV, res, tiles);
 	float tile = floor(cell.x / res);
 	vec2 local = vec2(mod(cell.x, res), cell.y);
 	vec2 p = (local + 0.5) * texel;

@@ -7,21 +7,18 @@ render_mode blend_disabled;
 //   tile 2: wall h1 (-Z), wall h2 (+X, -X, +Z)
 //   tile 3: wall h2 (-Z)
 // "Wall" values are the irradiance on a vertical surface facing that axis, at
-// WALL_H0 / WALL_H1 / WALL_H2. Panels are Lambertian rectangles facing down, sampled
-// at 2 × 2 points; full-height walls occlude (2D march through the occupancy
-// map). Coordinates are relative to the chunk origin to keep precision.
+// WALL_H0 / WALL_H1 / WALL_H2. Panels are Lambertian rectangles facing down,
+// sampled at 8 points; visibility is traced in 3D through the solid spans of
+// the level (spans.gdshaderinc). Coordinates are relative to the chunk origin.
 // Values are stored as sqrt(E / e_max) for low-end precision.
 
-uniform sampler2D occ_tex : filter_nearest, repeat_disable;
-uniform vec2 occ_origin;        // occupancy texel 0, relative to the chunk
-uniform float occ_texel = 0.125;
-uniform vec2 occ_size;
-uniform sampler2D fix_tex : filter_nearest, repeat_disable; // x, z, radiance, 0
+#include "res://shaders/spans.gdshaderinc"
+
+uniform sampler2D fix_tex : filter_nearest, repeat_disable; // x, z, radiance, panel height
 uniform int fix_count = 0;
 uniform float texel = 0.25;
 uniform float tiles = 3.0;
 uniform float res = 160.0;
-uniform float ceiling = 2.8;
 uniform float e_max = 6.0;
 uniform float reach = 8.0;
 uniform bool calibrate = false;   // development: writes the texel coordinates
@@ -32,12 +29,6 @@ uniform bool calibrate = false;   // development: writes the texel coordinates
 const float WALL_H0 = 0.4;
 const float WALL_H1 = 1.6;
 const float WALL_H2 = 2.5;
-
-float occupied(vec2 p) {
-	vec2 t = (p - occ_origin) / occ_texel;
-	if (t.x < 0.0 || t.y < 0.0 || t.x >= occ_size.x || t.y >= occ_size.y) return 0.0;
-	return texelFetch(occ_tex, ivec2(t), 0).r;
-}
 
 // Texels whose centre lies in a wall take the light of the nearest free
 // point: otherwise bilinear filtering bleeds black into the floor and walls
@@ -55,18 +46,8 @@ vec2 free_point(vec2 p) {
 }
 
 
-float visible(vec2 a, vec2 b) {
-	vec2 d = b - a;
-	int n = int(ceil(length(d) / occ_texel));
-	for (int i = 1; i < 96; i++) {
-		if (i >= n) break;
-		if (occupied(a + d * (float(i) / float(n))) > 0.5) return 0.0;
-	}
-	return 1.0;
-}
-
 void fragment() {
-	vec2 cell = floor(UV * vec2(res * tiles, res));
+	vec2 cell = bake_cell(UV, res, tiles);
 	float tile = floor(cell.x / res);
 	vec2 local = vec2(mod(cell.x, res), cell.y);
 	vec2 p = free_point((local + 0.5) * texel);
@@ -83,15 +64,23 @@ void fragment() {
 			vec2 jit = (vec2(fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453), fract(sin(dot(p, vec2(39.3468, 11.135))) * 24634.6345)) - 0.5) * vec2(0.3, 0.3);
 			for (int s = 0; s < 8; s++) {
 				vec2 q = f.xy + vec2((float(s % 4) - 1.5) * 0.3, s < 4 ? -0.15 : 0.15) + jit;
-				if (visible(p, q) < 0.5) continue;
+				vec3 lp = vec3(q.x, f.w - 0.01, q.y);
+				// Visibility in 3D per receiver height (a lintel can hide a panel
+				// from the floor and not from the top of a wall): floor and h0
+				// share one test.
+				float vis_low = visible(vec3(p.x, 0.02, p.y), lp);
+				float vis_mid = visible(vec3(p.x, WALL_H1, p.y), lp);
+				float vis_top = visible(vec3(p.x, WALL_H2, p.y), lp);
+				if (vis_low + vis_mid + vis_top < 0.5) continue;
 				// dA = panel area / 8; radiance f.z; E += L cos cos dA / d².
 				float w = f.z * 0.091875;
-				vec3 lp = vec3(q.x, ceiling - 0.01, q.y);
 				vec3 v = lp - vec3(p.x, 0.02, p.y);
 				float d2 = dot(v, v);
 				vec3 o = v * inversesqrt(d2);
-				e[0] += w * o.y * o.y / d2;
+				e[0] += vis_low * w * o.y * o.y / d2;
 				for (int h = 0; h < 3; h++) {
+					float vis = h == 0 ? vis_low : (h == 1 ? vis_mid : vis_top);
+					if (vis < 0.5) continue;
 					vec3 vh = lp - vec3(p.x, h == 0 ? WALL_H0 : (h == 1 ? WALL_H1 : WALL_H2), p.y);
 					float dh = dot(vh, vh);
 					vec3 oh = vh * inversesqrt(dh);
@@ -99,6 +88,14 @@ void fragment() {
 						e[1 + h * 4 + a] += w * max(dot(axes[a], oh), 0.0) * oh.y / dh;
 				}
 			}
+		}
+		// A wall height inside solid geometry (under a lintel, a slab) has no
+		// surface there: it takes the value of the free height below, or the
+		// wall profile through a zero would darken the whole wall.
+		for (int h = 1; h < 3; h++) {
+			float y = h == 1 ? WALL_H1 : WALL_H2;
+			if (blocked(p, y - 0.01, y + 0.01))
+				for (int a = 0; a < 4; a++) e[1 + h * 4 + a] = e[1 + (h - 1) * 4 + a];
 		}
 		if (tile < 0.5) outv = vec4(e[0], e[1], e[2], e[3]);
 		else if (tile < 1.5) outv = vec4(e[4], e[5], e[6], e[7]);

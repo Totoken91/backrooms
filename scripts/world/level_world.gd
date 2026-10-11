@@ -405,6 +405,16 @@ func cell_fixtures(x: int, z: int) -> Array:
 	return result
 
 
+## Floor and ceiling heights of a cell (the room's solid slabs, see SpanMap).
+## Constant in Level 0; generation rules can vary them per cell.
+func floor_height(_x: int, _z: int) -> float:
+	return 0.0
+
+
+func ceiling_height(_x: int, _z: int) -> float:
+	return HEIGHT
+
+
 func point_blocked(x: float, z: float) -> bool:
 	for b in cell_boxes(floori(x / CELL), floori(z / CELL)):
 		if b.occluder and x > b.x0 and x < b.x1 and z > b.z0 and z < b.z1:

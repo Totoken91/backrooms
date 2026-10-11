@@ -134,7 +134,7 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 			streamer.ao_image.save_png(folder.path_join("dump-%s-ao.png" % n))
 			var c: Chunk = streamer.chunks.get(WorldStreamer.chunk_of(player.global_position))
 			if c:
-				streamer.baker._occupancy(world, c.coord).save_png(folder.path_join("dump-%s-occ.png" % n))
+				streamer.baker.spans(world, c.coord).a.save_png(folder.path_join("dump-%s-spans.png" % n))
 				var origin := LightBaker.chunk_origin(c.coord)
 				var r := streamer.region_rect()
 				for t in [Vector2i(20, 20), Vector2i(40, 30), Vector2i(80, 80), Vector2i(120, 60), Vector2i(10, 140), Vector2i(150, 10), Vector2i(100, 120)]:
@@ -157,8 +157,7 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 			print("light_rect ", streamer.region_rect(), " baker ms ", streamer.baker.last_ms)
 			var pp := player.global_position
 			var cc := WorldStreamer.chunk_of(pp)
-			var occ_img: Image = streamer.baker._occupancy(world, cc)
-			var op := (Vector2(pp.x, pp.z) - LightBaker.chunk_origin(cc) + Vector2(LightBaker.MARGIN, LightBaker.MARGIN)) / LightBaker.OCC_TEXEL
+			var span_map := streamer.baker.spans(world, cc)
 			var cbx := []
 			for b in world.cell_boxes(floori(pp.x / 2.5), floori(pp.z / 2.5)):
 				cbx.append([b.id, b.x0, b.z0, b.x1, b.z1, b.occluder])
@@ -169,7 +168,7 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 					row += str(world.cell_kind(floori(pp.x / 2.5) + dx, floori(pp.z / 2.5) + dz))
 				kinds.append(row)
 			print("kinds ", kinds)
-			print("player ", pp, " chunk ", cc, " blocked ", world.point_blocked(pp.x, pp.z), " occ ", occ_img.get_pixelv(Vector2i(op)).r, " cell boxes ", cbx)
+			print("player ", pp, " chunk ", cc, " blocked ", world.point_blocked(pp.x, pp.z), " occ ", span_map.solid(pp.x, 0.05, pp.z), " cell boxes ", cbx)
 			var fwd := -player.global_transform.basis.z
 			for dist in [2.0, 4.0, 6.0, 8.0]:
 				var w: Vector3 = player.global_position + fwd * dist
@@ -192,13 +191,13 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 				print("   cpu floor E ", e_cpu, " panels <5.5m ", near)
 			if c:
 				var origin := LightBaker.chunk_origin(c.coord)
-				var occ: Image = streamer.baker._occupancy(world, c.coord)
+				var chunk_spans := streamer.baker.spans(world, c.coord)
 				var view_img := Image.create(640, 640, false, Image.FORMAT_RGB8)
 				var tile0: Image = c.direct[0]
 				for y in 640:
 					for x in 640:
 						var v := tile0.get_pixel(x / 4, y / 4).r
-						var o := occ.get_pixel(int(LightBaker.MARGIN / LightBaker.OCC_TEXEL) + x / 2, int(LightBaker.MARGIN / LightBaker.OCC_TEXEL) + y / 2).r
+						var o := 1.0 if chunk_spans.solid(origin.x + x / 16.0, 0.05, origin.y + y / 16.0) else 0.0
 						view_img.set_pixel(x, y, Color(v, v, v + o * 0.6))
 				for z in range(c.coord.y * 16, c.coord.y * 16 + 16):
 					for x in range(c.coord.x * 16, c.coord.x * 16 + 16):

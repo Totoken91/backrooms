@@ -11,6 +11,8 @@ const TILES := 4
 const TEXEL := 0.25
 const OCC_TEXEL := 0.125
 const MARGIN := 10.0
+## Heavy passes render in this many bands (one per frame).
+const BANDS := 8
 const E_MAX := 6.0
 const I_MAX := 2.0
 
@@ -31,6 +33,8 @@ var _rect: ColorRect
 var _direct := ShaderMaterial.new()
 var _indirect := ShaderMaterial.new()
 var _filter := ShaderMaterial.new()
+var _span_cache := {}
+var _span_order: Array[Vector2i] = []
 
 
 func _ready() -> void:
@@ -39,6 +43,7 @@ func _ready() -> void:
 	_viewport.disable_3d = true
 	_viewport.transparent_bg = true
 	_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	_viewport.render_target_clear_mode = SubViewport.CLEAR_MODE_NEVER
 	add_child(_viewport)
 	_rect = ColorRect.new()
 	_rect.size = Vector2(RES * TILES, RES)
@@ -60,30 +65,25 @@ static func chunk_origin(coord: Vector2i) -> Vector2:
 	return Vector2(coord) * LevelWorld.CHUNK * LevelWorld.CELL
 
 
-## Full-height walls of the chunk and a margin, relative to the chunk origin.
-func _occupancy(world: LevelWorld, coord: Vector2i) -> Image:
-	var origin := chunk_origin(coord) - Vector2(MARGIN, MARGIN)
+## Solid geometry of the chunk and a margin, as vertical spans (SpanMap).
+## The three bakes of a chunk reuse it: a few recent chunks are kept.
+func spans(world: LevelWorld, coord: Vector2i) -> SpanMap:
+	if _span_cache.has(coord):
+		return _span_cache[coord]
 	var size := int((LevelWorld.CHUNK * LevelWorld.CELL + 2.0 * MARGIN) / OCC_TEXEL)
-	var img := Image.create(size, size, false, Image.FORMAT_R8)
-	var c0 := Vector2i((origin / LevelWorld.CELL).floor())
-	var cells := int(ceil((LevelWorld.CHUNK * LevelWorld.CELL + 2.0 * MARGIN) / LevelWorld.CELL)) + 1
-	var seen := {}
-	for z in range(c0.y, c0.y + cells):
-		for x in range(c0.x, c0.x + cells):
-			for b in world.cell_boxes(x, z):
-				if not b.occluder or seen.has(b.id):
-					continue
-				seen[b.id] = true
-				var r := Rect2i(Vector2i(floori((b.x0 - origin.x) / OCC_TEXEL + 0.5), floori((b.z0 - origin.y) / OCC_TEXEL + 0.5)), Vector2i.ZERO)
-				r.end = Vector2i(floori((b.x1 - origin.x) / OCC_TEXEL + 0.5), floori((b.z1 - origin.y) / OCC_TEXEL + 0.5))
-				img.fill_rect(r.intersection(Rect2i(0, 0, size, size)), Color(1, 0, 0))
-	return img
+	var m := SpanMap.build(world, chunk_origin(coord) - Vector2(MARGIN, MARGIN), size, OCC_TEXEL)
+	_span_cache[coord] = m
+	_span_order.append(coord)
+	if _span_order.size() > 8:
+		_span_cache.erase(_span_order.pop_front())
+	return m
 
 
-func _set_occupancy(m: ShaderMaterial, img: Image) -> void:
-	m.set_shader_parameter("occ_tex", ImageTexture.create_from_image(img))
+func _set_spans(m: ShaderMaterial, map: SpanMap) -> void:
+	m.set_shader_parameter("span_a", ImageTexture.create_from_image(map.a))
+	m.set_shader_parameter("span_b", ImageTexture.create_from_image(map.b))
 	m.set_shader_parameter("occ_origin", Vector2(-MARGIN, -MARGIN))
-	m.set_shader_parameter("occ_size", Vector2(img.get_size()))
+	m.set_shader_parameter("occ_size", Vector2(map.size, map.size))
 
 
 ## Renders `m`, then (denoise > 0) the wall-aware blur of that result with
@@ -93,9 +93,9 @@ func _render(m: ShaderMaterial, denoise := 0) -> Array:
 		await get_tree().process_frame
 	busy = true
 	var started := Time.get_ticks_usec()
-	var img := await _draw(m)
+	var img := await _draw(m, BANDS)
 	if denoise > 0:
-		for key in ["occ_tex", "occ_origin", "occ_size"]:
+		for key in ["span_a", "span_b", "occ_origin", "occ_size"]:
 			_filter.set_shader_parameter(key, m.get_shader_parameter(key))
 		_filter.set_shader_parameter("src", ImageTexture.create_from_image(img))
 		_filter.set_shader_parameter("radius", denoise)
@@ -110,14 +110,22 @@ func _render(m: ShaderMaterial, denoise := 0) -> Array:
 	return tiles
 
 
-func _draw(m: ShaderMaterial) -> Image:
+## Draws `m` over the tiles in `bands` horizontal bands, one per frame,
+## so a heavy pass costs the frame a fraction of its GPU time (the viewport
+## keeps its content between bands), then reads the result back.
+func _draw(m: ShaderMaterial, bands := 1) -> Image:
 	_rect.material = m
-	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
-	# The material change reaches the canvas one frame late: read back after
-	# the second draw, or each chunk gets the previous chunk's light.
-	await RenderingServer.frame_post_draw
-	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
-	await RenderingServer.frame_post_draw
+	var rows := RES / bands
+	for k in bands:
+		_rect.position.y = k * rows
+		_rect.size.y = rows
+		m.set_shader_parameter("band_y0", float(k * rows))
+		m.set_shader_parameter("band_rows", float(rows))
+		# Changes reach the canvas one frame late: draw twice, keep the second.
+		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+		await RenderingServer.frame_post_draw
+		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+		await RenderingServer.frame_post_draw
 	var img := _viewport.get_texture().get_image()
 	img.convert(Image.FORMAT_RGBA8)
 	return img
@@ -136,10 +144,10 @@ func direct(world: LevelWorld, coord: Vector2i) -> Array:
 	var fix := Image.create(maxi(1, fixtures.size()), 1, false, Image.FORMAT_RGBAF)
 	for i in fixtures.size():
 		var f = fixtures[i]
-		fix.set_pixel(i, 0, Color(f.x - origin.x, f.z - origin.y, PanelLights.power(0.0, f.seed, true) * panel_radiance, 0))
+		fix.set_pixel(i, 0, Color(f.x - origin.x, f.z - origin.y, PanelLights.power(0.0, f.seed, true) * panel_radiance, f.y))
 	_direct.set_shader_parameter("fix_tex", ImageTexture.create_from_image(fix))
 	_direct.set_shader_parameter("fix_count", fixtures.size())
-	_set_occupancy(_direct, _occupancy(world, coord))
+	_set_spans(_direct, spans(world, coord))
 	return await _render(_direct, 1)
 
 
@@ -148,7 +156,7 @@ func direct(world: LevelWorld, coord: Vector2i) -> Array:
 ## `region`; `second` makes hits carry the first gather too (two bounces).
 func indirect(world: LevelWorld, coord: Vector2i, maps: Array, region: Rect2, second: bool) -> Array:
 	var origin := chunk_origin(coord)
-	_set_occupancy(_indirect, _occupancy(world, coord))
+	_set_spans(_indirect, spans(world, coord))
 	for i in 4:
 		_indirect.set_shader_parameter("direct%d" % i, maps[i])
 	for i in 3:
