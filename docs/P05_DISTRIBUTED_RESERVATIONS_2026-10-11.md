@@ -87,3 +87,8 @@ Web local à 1280 × 720, seed99 / site (-2,-1) / entry : 111 bakes terminés,
 zéro attente, console sans erreur ni avertissement. Plafond, volumes et éclairage
 réfléchi contrôlés après stabilisation. Onglet et serveur temporaires fermés.
 Aucun nouveau test interactif de souris ni benchmark Web répété revendiqué.
+
+## Référence de lore pour la suite
+
+Voir [l'alignement Wikidot](LEVEL0_WIKIDOT_ALIGNMENT_2026-10-11.md), demandé par
+Kenny après P05. Les prochains profils et leurs règles doivent suivre ce plan.

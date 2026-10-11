@@ -1,5 +1,12 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**Alignement lore Level 0 :** [lecture Wikidot et plan](docs/LEVEL0_WIKIDOT_ALIGNMENT_2026-10-11.md).
+La page fournie par Kenny devient la référence de lore pour le prototype.
+Suite conseillée : profils architecturaux distincts et pilote d'arches,
+puis grands champs de piliers, zones noires, fosses et pièces rouges.
+Ne pas confondre cache déterministe et future réorganisation hors observation.
+Aucun changement de gameplay dans cette lecture ; aucun push.
+
 **P05 — réservations distribuées :** [architecture et validation](docs/P05_DISTRIBUTED_RESERVATIONS_2026-10-11.md).
 Nouvelle composition par défaut : un site de six modules par secteur de
 80 × 80 m ; placement et variantes par graine, cache élagué, IDs de néons
