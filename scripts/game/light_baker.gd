@@ -18,6 +18,10 @@ const I_MAX := 2.0
 
 ## Panel radiance: a Cycles emission strength is the radiance itself (truth renders: 12).
 var panel_radiance := 12.0
+## Direct emitter cutoff; keep inside the obstacle margin for valid shadows.
+var direct_reach := 8.0
+## Diagnostic only: vertical location of the single wall-indirect sample.
+var wall_receiver_fraction := 0.5
 ## Linear albedos: texture averages times the tints calibrated in Cycles.
 var albedo := {"wall": Color(0.599, 0.491, 0.141), "floor": Color(0.312, 0.266, 0.098), "ceiling": Color(0.771, 0.755, 0.553)}
 ## Second gather: hit surfaces show their first-gather light times this, for
@@ -207,6 +211,7 @@ func direct(world: LevelWorld, coord: Vector2i) -> Array:
 		fix.set_pixel(i, 0, Color(f.x - origin.x, f.z - origin.y, lit * panel_radiance, f.y))
 	_direct.set_shader_parameter("fix_tex", ImageTexture.create_from_image(fix))
 	_direct.set_shader_parameter("fix_count", fixtures.size())
+	_direct.set_shader_parameter("reach", direct_reach)
 	_set_spans(_direct, await prepare_spans(world, coord), coord)
 	return await _render(_direct, 1)
 
@@ -225,6 +230,7 @@ func indirect(world: LevelWorld, coord: Vector2i, second: bool) -> Array:
 	_set_spans(_indirect, await prepare_spans(world, coord), coord)
 	_indirect.set_shader_parameter("bake_origin", chunk_origin(coord))
 	_indirect.set_shader_parameter("use_bounce", higher_bounces if second else 0.0)
+	_indirect.set_shader_parameter("wall_receiver_fraction", wall_receiver_fraction)
 	_indirect.set_shader_parameter("wall_albedo", albedo.wall)
 	_indirect.set_shader_parameter("floor_albedo", albedo.floor)
 	_indirect.set_shader_parameter("ceiling_albedo", albedo.ceiling)

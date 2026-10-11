@@ -288,6 +288,37 @@ func check_uniform_gather() -> void:
 	shot = vp.get_texture().get_image()
 	for tile in 3:
 		check_color(shot.get_pixel(tile * 16 + 8, 8), Color.BLACK, "black gather tile %d" % tile)
+	# A square room and its light rotated 90 degrees around the centre must
+	# produce the same result there (AZ=16 gives the same rotated ray set).
+	# Each of the four walls carries direct illumination in turn.
+	# This catches ambiguous diagonal column crossings picking an X face.
+	mat.set_shader_parameter("texel", 5.0 / 17.0) # pixel (8,8) is exactly (2.5,2.5).
+	mat.set_shader_parameter("floor_albedo", Vector3.ZERO)
+	mat.set_shader_parameter("ceiling_albedo", Vector3.ZERO)
+	var rotated_samples: Array[Color] = []
+	for axis in [1, 3, 0, 2]:
+		for layer in 4:
+			var value := Color(0, 0, 0, 0)
+			if axis == 1 and layer <= 2:
+				value.b = 0.4 # -X at each of the three stored heights.
+			if axis == 3 and layer >= 1:
+				value.r = 0.4 # -Z at each height.
+			if axis == 0 and layer <= 2:
+				value.g = 0.4 # +X at each height.
+			if axis == 2 and layer <= 2:
+				value.a = 0.4 # +Z at each height.
+			layers[layer].fill(value)
+			maps.update_layer(layers[layer], layer)
+		for frame in 3:
+			await process_frame
+			await RenderingServer.frame_post_draw
+		shot = vp.get_texture().get_image()
+		for tile in 3:
+			rotated_samples.append(shot.get_pixel(tile * 16 + 8, 8))
+	print("probe rotated gather ", rotated_samples)
+	for turn in range(1, 4):
+		for tile in 3:
+			check_color(rotated_samples[tile], rotated_samples[turn * 3 + tile], "gather quarter-turn %d tile %d" % [turn, tile])
 	vp.queue_free()
 
 

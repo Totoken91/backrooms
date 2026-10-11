@@ -46,6 +46,11 @@ func _ready() -> void:
 	var baker := LightBaker.new()
 	baker.name = "LightBaker"
 	add_child(baker)
+	# Diagnostic only: longer source reach, within the existing span margin.
+	if options.has("direct_reach"):
+		baker.direct_reach = clampf(float(options.direct_reach), 1.0, 9.5)
+	if options.has("wall_receiver_fraction"):
+		baker.wall_receiver_fraction = clampf(float(options.wall_receiver_fraction), 0.1, 0.9)
 	streamer.baker = baker
 	# Development: isolate each lighting component (lights=0, field=0).
 	# Development: tune=param:value,... on surface materials; env.<prop>:value on

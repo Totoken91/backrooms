@@ -29,6 +29,12 @@ analytique ; déficit indirect encore ouvert. Travail local, aucun push.
 Erreur de lumière uniforme ramenée de 24 à 1/255 encodé. Sur dim3, le rebond
 reste à 0,83 de Cycles : déficit principal encore ouvert. `CAPTURE_LOG` conserve
 le journal des captures, `profile` imprime leur progression. Aucun push.
+**Faces du transport :** [normales d'impact, test de rotation et comparaisons](docs/GATHER_WALL_FACES_2026-10-11.md).
+Traversées diagonales : lecture de la vraie face plutôt que préférence X.
+Premier rebond dim3 0,83 → 0,93 de Cycles ; dim0 0,81 → 0,88, directe inchangée.
+Test GPU des quatre orientations passé. Portée 8 m et hauteur centrale inchangées.
+Options QA `direct_reach` / `wall_receiver_fraction`, audit des récepteurs en Python.
+Toujours local uniquement, aucun push.
 Document de reprise pour Codex. État au commit qui ajoute ce fichier (branche
 `main`). Tout ce qui suit a été vérifié en local ; les chiffres viennent des
 outils de mesure décrits plus bas.

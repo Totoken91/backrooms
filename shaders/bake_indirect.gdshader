@@ -32,6 +32,8 @@ uniform float e_max = 6.0;
 uniform float i_max = 2.0;
 uniform float boost = 1.0;
 uniform float max_distance = 16.0;
+// Diagnostic: isolate the wall receiver height without changing map layout.
+uniform float wall_receiver_fraction = 0.5;
 
 // Texels whose centre lies in a wall take the light of the nearest free
 // point: otherwise bilinear filtering bleeds black into the floor and walls
@@ -80,7 +82,7 @@ void fragment() {
 		// Receivers in the column's room space: its floor, its ceiling (the
 		// underside of a lintel or duct roof above it), walls midway.
 		vec2 gap = column_gap(p);
-		float y0 = tile < 0.5 ? gap.x + 0.03 : (tile < 1.5 ? gap.y - 0.03 : (gap.x + gap.y) * 0.5);
+		float y0 = tile < 0.5 ? gap.x + 0.03 : (tile < 1.5 ? gap.y - 0.03 : mix(gap.x, gap.y, wall_receiver_fraction));
 		// Walls: the light a wall receives comes from the half-space in front of
 		// it. Next to a wall (within 0.5 m) face away from it; elsewhere average
 		// the four orientations.
@@ -121,7 +123,6 @@ void fragment() {
 				float dt = occ_texel / max(sz, 1e-3);
 				float t_max = max_distance / max(sz, 0.05);
 				vec3 radiance = vec3(0.0);
-				vec2 prev_mid = p;
 				float t_prev = 0.0;
 				for (int i = 1; i < 160; i++) {
 					float t = min(float(i) * dt, t_max);
@@ -133,16 +134,26 @@ void fragment() {
 					bool side = false;
 					for (int k = 0; k < 4; k++) side = side || (ya > lo[k] && ya < hi[k]);
 					if (side) {
-						// Wall face: the axis whose column boundary the ray crossed.
-						vec2 dc = floor((qm - occ_origin) / occ_texel) - floor((prev_mid - occ_origin) / occ_texel);
-						int axis = abs(dc.x) >= abs(dc.y) ? (dir.x > 0.0 ? 1 : 0) : (dir.z > 0.0 ? 3 : 2);
+						// A step can cross both grid axes. Preferring X on a tie
+						// mislabels continuous Z walls and reads their unlit X field.
+						// Find the exposed face from the adjacent solid columns;
+						// at a genuine corner use the last crossed cell boundary.
+						vec2 wall_at = floor((qm - occ_origin) / occ_texel);
+						vec2 centre = occ_origin + (wall_at + 0.5) * occ_texel;
+						vec2 step_sign = sign(dir.xz);
+						bool open_x = !blocked(centre - vec2(step_sign.x * occ_texel, 0), ya - 0.001, ya + 0.001);
+						bool open_z = !blocked(centre - vec2(0, step_sign.y * occ_texel), ya - 0.001, ya + 0.001);
+						vec2 entry = centre - step_sign * occ_texel * 0.5;
+						float tx = abs(dir.x) > 1e-5 ? (entry.x - p.x) / dir.x : -1e5;
+						float tz = abs(dir.z) > 1e-5 ? (entry.y - p.y) / dir.z : -1e5;
+						bool x_face = open_x != open_z ? open_x : tx >= tz;
+						int axis = x_face ? (dir.x > 0.0 ? 1 : 0) : (dir.z > 0.0 ? 3 : 2);
 						// Read the wall's light 0.2 m in front of it: closer, bilinear
 						// filtering mixes in the wall's own (black) texels.
 						vec2 face = axis == 0 ? vec2(1, 0) : axis == 1 ? vec2(-1, 0) : axis == 2 ? vec2(0, 1) : vec2(0, -1);
-						vec2 wall_at = floor((qm - occ_origin) / occ_texel);
-						vec2 front = occ_origin + (wall_at + 0.5) * occ_texel;
-						front = mix(front, prev_mid, abs(face.yx)) + face * (0.0625 + 0.2);
-						radiance = wall_albedo * (wall_direct(front, axis, ya) + bmap(7, front)) / PI;
+						float hit_t = max(x_face ? tx : tz, 0.0);
+						vec2 front = p + dir.xz * hit_t + face * 0.2;
+						radiance = wall_albedo * (wall_direct(front, axis, y0 + dir.y * hit_t) + bmap(7, front)) / PI;
 						break;
 					}
 					// Horizontal faces crossed within the step: the first one met.
@@ -168,7 +179,6 @@ void fragment() {
 						break;
 					}
 					if (t >= t_max) break;
-					prev_mid = qm;
 					t_prev = t;
 				}
 				total += radiance * facing * weight;
