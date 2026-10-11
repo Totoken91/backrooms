@@ -5,7 +5,8 @@ extends RefCounted
 ## and the unit of the classic baseline maze.
 ##
 ## C01/C02 reserve 17.5 m, P01–P06 reserve 27.5 m for a composed/assembled promenade.
-## P05 distributes reservations over the streamed world. Site exits
+## P05/P06 distribute sites; P07 also spans four chunks with shared ownership.
+## Site exits
 ## always face odd maze cells, which the maze spanning tree reaches.
 
 const CELL := 2.5
@@ -68,10 +69,14 @@ var site := SITE
 var spawn: Dictionary
 var views := {}
 var composition_report := {}
+## Legacy sites use uniform quanta; P07 large fields expose nonuniform axes.
 var site_grid: PackedByteArray
+var site_grid_axes := []
 
 ## Materialized reservations, including empty chunks; pruned with geometry.
 var _reservations := {}
+## P07 district contracts, independent of geometry/cache materialization.
+var _district_layouts := {}
 var _chunks := {}
 var _maze_boxes := {}
 ## Panels switched off for good during the exploration (fixture id -> true).
@@ -84,10 +89,10 @@ var _maze_fixtures := {}
 
 func _init(p_seed: int, p_composition := "C01") -> void:
 	seed = Hashing.u32(p_seed)
-	composition = p_composition if p_composition in ["C01", "C02", "P01", "P02", "P03", "P04", "P05", "P06"] else "C01"
-	if composition in ["P01", "P02", "P03", "P04", "P05", "P06"]:
+	composition = p_composition if p_composition in ["C01", "C02", "P01", "P02", "P03", "P04", "P05", "P06", "P07"] else "C01"
+	if composition in ["P01", "P02", "P03", "P04", "P05", "P06", "P07"]:
 		site = Rect2i(2, 2, 11, 11)
-		version = "level0-godot.8-P06" if composition == "P06" else "level0-godot.7-P05" if composition == "P05" else "level0-godot.6-P04" if composition == "P04" else "level0-godot.5-P03" if composition == "P03" else "level0-godot.4-P02" if composition == "P02" else "level0-godot.3-P01"
+		version = "level0-godot.9-P07" if composition == "P07" else "level0-godot.8-P06" if composition == "P06" else "level0-godot.7-P05" if composition == "P05" else "level0-godot.6-P04" if composition == "P04" else "level0-godot.5-P03" if composition == "P03" else "level0-godot.4-P02" if composition == "P02" else "level0-godot.3-P01"
 		version_hash = Hashing.text(version)
 	if composition == "C02":
 		version = "level0-godot.2-C02"
@@ -136,8 +141,17 @@ func chunk_at(cx: int, cz: int) -> PackedByteArray:
 	var cells: Array[int] = []
 	cells.resize(CHUNK * CHUNK)
 	cells.fill(1)
-	var stack: Array[Vector2i] = [Vector2i(1, 1)]
-	cells[CHUNK + 1] = 0
+	var start := Vector2i(1,1)
+	# Multi-chunk reservations can cover (1,1): begin in the remaining spine.
+	if composition == "P07":
+		for z in range(1,CHUNK,2):
+			for x in range(1,CHUNK,2):
+				if not reservation.has_point(Vector2i(x,z)):
+					start = Vector2i(x,z)
+					break
+			if not reservation.has_point(start): break
+	var stack: Array[Vector2i] = [start]
+	cells[start.y*CHUNK+start.x] = 0
 	# A connected one-cell circulation spine; it goes around the reserved site.
 	while not stack.is_empty():
 		var p: Vector2i = stack[-1]
@@ -281,10 +295,16 @@ func prune(cx: int, cz: int, keep := 4) -> void:
 	for key in _chunks.keys():
 		if absi(key.x - cx) > keep or absi(key.y - cz) > keep:
 			_chunks.erase(key)
+	for key in _district_layouts.keys():
+		var bounds: Rect2i = _district_layouts[key].bounds
+		var keep_bounds := Rect2i((Vector2i(cx,cz)-Vector2i(keep,keep))*CHUNK,Vector2i(keep*2+1,keep*2+1)*CHUNK)
+		if key != Vector2i.ZERO and not bounds.intersects(keep_bounds):
+			_district_layouts.erase(key)
 	for key in _reservations.keys():
 		if key == Vector2i.ZERO: continue
-		if absi(key.x - cx) > keep or absi(key.y - cz) > keep:
-			_reservations.erase(key)
+		var bounds: Rect2i = _reservations[key].get("bounds",Rect2i(key*CHUNK,Vector2i(CHUNK,CHUNK)))
+		var keep_bounds := Rect2i((Vector2i(cx,cz)-Vector2i(keep,keep))*CHUNK,Vector2i(keep*2+1,keep*2+1)*CHUNK)
+		if not bounds.intersects(keep_bounds): _reservations.erase(key)
 	for cache in [_maze_boxes, _maze_fixtures]:
 		for key in cache.keys():
 			if absi(floori(float(key.x) / CHUNK) - cx) > keep or absi(floori(float(key.y) / CHUNK) - cz) > keep:
@@ -293,9 +313,27 @@ func prune(cx: int, cz: int, keep := 4) -> void:
 
 # --- Composition site -----------------------------------------------------------------
 
-## Pure placement contract: one owner per 2x2 chunk district. 27.5m sites
-## remain inside their 40m chunk, leaving the classic edge spine untouched.
+## P07 district contract: one 72.5m field shared by four chunks, or one
+## 27.5m segmented site in a selected member. Outer circulation stays free.
+func _district_layout(cx: int, cz: int) -> Dictionary:
+	var district := Vector2i(floori(float(cx)/2),floori(float(cz)/2))
+	if _district_layouts.has(district): return _district_layouts[district]
+	var anchor := district*2
+	var large := district == Vector2i.ZERO or channel("P07.large",[district.x,district.y])%3 == 0
+	var choice := channel("P07.placement",[district.x,district.y])%4
+	var owner := anchor if large else anchor+Vector2i(choice%2,choice/2)
+	var bounds := Rect2i(owner*CHUNK+Vector2i(2,2),Vector2i(29,29) if large else site.size)
+	var layout := {"owner":owner,"bounds":bounds,"large":large}
+	_district_layouts[district] = layout
+	return layout
+
+
 func reservation_rect(cx: int, cz: int) -> Rect2i:
+	if composition == "P07":
+		var rect: Rect2i = _district_layout(cx,cz).bounds
+		var origin := Vector2i(cx,cz)*CHUNK
+		var overlap := rect.intersection(Rect2i(origin,Vector2i(CHUNK,CHUNK)))
+		return Rect2i(overlap.position-origin,overlap.size) if overlap.has_area() else Rect2i()
 	if cx == 0 and cz == 0: return site
 	if composition not in ["P05","P06"]: return Rect2i()
 	var district := Vector2i(floori(float(cx) / 2), floori(float(cz) / 2))
@@ -307,6 +345,9 @@ func reservation_rect(cx: int, cz: int) -> Rect2i:
 ## Metadata can be queried before meshes/bakes and in any order.
 func reservation_at(cx: int, cz: int) -> Dictionary:
 	var key := Vector2i(cx, cz)
+	if composition == "P07":
+		if not reservation_rect(cx,cz).has_area(): return {}
+		key = _district_layout(cx,cz).owner
 	if _reservations.has(key): return _reservations[key]
 	if not reservation_rect(cx, cz).has_area():
 		_reservations[key] = {}
@@ -319,6 +360,7 @@ func reservation_at(cx: int, cz: int) -> Dictionary:
 func _build_site() -> void:
 	var data := reservation_at(0, 0)
 	site_grid = data.grid
+	site_grid_axes = data.grid_axes
 	views = data.views
 	spawn = data.spawn
 	composition_report = data.report
@@ -332,12 +374,20 @@ func _build_reservation(owner: Vector2i) -> Dictionary:
 	var site_fixture_index := {}
 	var site_views := {}
 	var prefix := "" if owner == Vector2i.ZERO else "r%d,%d:" % [owner.x, owner.y]
-	var origin_cell := owner * CHUNK + site.position
-	var w := int(site.size.x * CELL / Compositions.Q)
-	var d := int(site.size.y * CELL / Compositions.Q)
-	var pick := func(domain: String, n: int) -> int: return channel(composition + "." + domain, [owner.x, owner.y] if composition in ["P05","P06"] else []) % n
+	var bounds := Rect2i(owner*CHUNK+site.position,site.size)
+	if composition == "P07": bounds = _district_layout(owner.x,owner.y).bounds
+	var origin_cell := bounds.position
+	var w := int(bounds.size.x * CELL / Compositions.Q)
+	var d := int(bounds.size.y * CELL / Compositions.Q)
+	var pick := func(domain: String, n: int) -> int: return channel(composition + "." + domain, [owner.x, owner.y] if composition in ["P05","P06","P07"] else []) % n
 	var c: Dictionary
 	match composition:
+		"P07":
+			if _district_layout(owner.x,owner.y).large:
+				c = SiteProfiles.large_field(pick,w,d)
+			else:
+				c = SpatialAssembler.build(pick,w,d)
+				c["profile"] = "segmented"
 		"P06":
 			if owner == Vector2i.ZERO or pick.call("profile",3) == 0:
 				c = SiteProfiles.pillar_field(pick,w,d)
@@ -350,7 +400,7 @@ func _build_reservation(owner: Vector2i) -> Dictionary:
 		"P01": c = Compositions.p01(pick, w, d)
 		"C02": c = Compositions.c02(pick, w, d)
 		_: c = Compositions.c01(pick, w, d)
-	var resolved := Compositions.resolve(c, w, d)
+	var resolved := Compositions.resolve_rectangles(c,w,d) if composition == "P07" and c.profile == "large_pillar_field" else Compositions.resolve(c,w,d)
 	var ox := origin_cell.x * CELL
 	var oz := origin_cell.y * CELL
 	var Q := Compositions.Q
@@ -374,6 +424,7 @@ func _build_reservation(owner: Vector2i) -> Dictionary:
 		b.occluder = false
 		site_boxes.append(b)
 		i += 1
+	var fixture_seed_base := channel(composition+".fixtures",[owner.x,owner.y] if composition in ["P05","P06","P07"] else [])
 	for f in resolved.fixtures:
 		var r: Array = f.rect
 		var fx := Fixture.new()
@@ -384,9 +435,12 @@ func _build_reservation(owner: Vector2i) -> Dictionary:
 		fx.z0 = fx.z - PANEL * 0.5
 		fx.x1 = fx.x + PANEL * 0.5
 		fx.z1 = fx.z + PANEL * 0.5
-		fx.seed = channel(composition + ".fixtures", [owner.x, owner.y, f.key] if composition in ["P05","P06"] else [f.key])
+		fx.seed = Hashing.mix(fixture_seed_base ^ Hashing.u32(f.key))
 		fx.y = ceiling_cells.get(Vector2i(floori(fx.x / CELL), floori(fx.z / CELL)), HEIGHT)
 		site_fixtures.append(fx)
+	# Each streamed mesh/collider owns only its fragment. Touching fragments
+	# still share the world index, so _exposed suppresses internal cut faces.
+	if composition == "P07": site_boxes = _split_site_boxes(site_boxes)
 	for b in site_boxes:
 		for z in range(floori(b.z0 / CELL), floori((b.z1 - EPS) / CELL) + 1):
 			for x in range(floori(b.x0 / CELL), floori((b.x1 - EPS) / CELL) + 1):
@@ -409,18 +463,33 @@ func _build_reservation(owner: Vector2i) -> Dictionary:
 			var r: Array = f.rect
 			exits.append({"name": f.name, "side": f.exit, "x0": ox + r[0] * Q, "z0": oz + r[1] * Q, "x1": ox + r[2] * Q, "z1": oz + r[3] * Q})
 	var report := {"id": c.id, "name": c.name, "variant": c.variant, "exits": exits,
-		"site": Rect2(ox, oz, site.size.x * CELL, site.size.y * CELL), "boxes": site_boxes.size(), "fixtures": site_fixtures.size(), "assembly": c.get("assembly", {})}
+		"site": Rect2(ox, oz, bounds.size.x * CELL, bounds.size.y * CELL), "boxes": site_boxes.size(), "fixtures": site_fixtures.size(), "assembly": c.get("assembly", {})}
 
-	if composition in ["P05","P06"]:
+	if composition in ["P05","P06","P07"]:
 		report["id"] = composition
 		report["name"] = "Parcours distribues"
-	if composition == "P06":
+	if composition in ["P06","P07"]:
 		report["profile"] = c.profile
 		report["name"] = c.name
 	report["owner"] = owner
-	return {"grid": resolved.grid, "ceilings": ceiling_cells, "boxes": site_boxes,
+	return {"bounds":bounds,"grid": resolved.grid,"grid_axes":resolved.get("grid_axes",[]), "ceilings": ceiling_cells, "boxes": site_boxes,
 		"fixtures": site_fixtures, "index": site_index, "fixture_index": site_fixture_index,
 		"views": site_views, "spawn": site_spawn, "report": report}
+
+
+## Split once at chunk planes, never replicate an entire cross-chunk wall.
+func _split_site_boxes(boxes: Array[Box]) -> Array[Box]:
+	var result: Array[Box] = []
+	var extent := CELL*CHUNK
+	for b in boxes:
+		for z in range(floori(b.z0/extent),floori((b.z1-EPS)/extent)+1):
+			for x in range(floori(b.x0/extent),floori((b.x1-EPS)/extent)+1):
+				var part := Box.new(b.id+"@%d,%d"%[x,z],b.kind,maxf(b.x0,x*extent),maxf(b.z0,z*extent),minf(b.x1,(x+1)*extent),minf(b.z1,(z+1)*extent))
+				part.y0=b.y0
+				part.y1=b.y1
+				part.occluder=b.occluder
+				result.append(part)
+	return result
 
 
 # --- Queries ------------------------------------------------------------------

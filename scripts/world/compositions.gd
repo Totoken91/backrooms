@@ -254,3 +254,62 @@ static func _paint(grid: PackedByteArray, w: int, d: int, r: Array, v: int) -> P
 		for x in range(maxi(0, r[0]), mini(w, r[2])):
 			grid[z * w + x] = v
 	return grid
+
+## Exact coordinate compression for large rectangular sites: occupancy only
+## changes on recipe edges. Avoid a dense 0.125m work grid per district.
+## grid_axes defines the nonuniform cells of the returned grid.
+static func resolve_rectangles(c: Dictionary, w: int, d: int) -> Dictionary:
+	var xs := {0:true,w:true}
+	var zs := {0:true,d:true}
+	for list in [c.free,c.solid]:
+		for item in list:
+			var r: Array = item.rect
+			xs[clampi(r[0],0,w)]=true
+			xs[clampi(r[2],0,w)]=true
+			zs[clampi(r[1],0,d)]=true
+			zs[clampi(r[3],0,d)]=true
+	var ax := PackedInt32Array(xs.keys())
+	var az := PackedInt32Array(zs.keys())
+	ax.sort()
+	az.sort()
+	var ix := {}
+	var iz := {}
+	for i in ax.size(): ix[ax[i]]=i
+	for i in az.size(): iz[az[i]]=i
+	var compressed := {"free":[],"solid":[],"lintels":[],"fixtures":[],"fixture_margin":0}
+	for key in ["free","solid"]:
+		for item in c[key]:
+			var r: Array = item.rect
+			compressed[key].append({"rect":[ix[clampi(r[0],0,w)],iz[clampi(r[1],0,d)],ix[clampi(r[2],0,w)],iz[clampi(r[3],0,d)]]})
+	var cols := ax.size()-1
+	var result := resolve(compressed,cols,az.size()-1)
+	for r in result.boxes:
+		r[0]=ax[r[0]]
+		r[1]=az[r[1]]
+		r[2]=ax[r[2]]
+		r[3]=az[r[3]]
+	var margin: int = c.fixture_margin
+	for f in c.fixtures:
+		var r: Array = f.rect
+		var x0: int = r[0]-margin
+		var z0: int = r[1]-margin
+		var x1: int = r[2]+margin
+		var z1: int = r[3]+margin
+		if x0<0 or z0<0 or x1>w or z1>d: continue
+		var ok := true
+		for z in range(az.bsearch(z0+1)-1,az.bsearch(z1)):
+			for x in range(ax.bsearch(x0+1)-1,ax.bsearch(x1)):
+				if result.grid[z*cols+x]:
+					ok=false
+					break
+			if not ok: break
+		# Overhead volumes affect panels but not the full-height wall cover.
+		if ok:
+			for l in c.lintels:
+				var v: Array = l.rect
+				if x0<v[2] and x1>v[0] and z0<v[3] and z1>v[1]:
+					ok=false
+					break
+		if ok: result.fixtures.append(f)
+	result["grid_axes"]=[ax,az]
+	return result

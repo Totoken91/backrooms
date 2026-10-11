@@ -8,8 +8,26 @@ multi-chunks, zones noires, fosses, pièces rouges, puis réorganisation.
 Ne pas confondre cache déterministe et future réorganisation hors observation.
 Aucun push sans accord de Kenny.
 
+**P07 — champs sur quatre chunks :** [architecture et audits](docs/P07_MULTI_CHUNK_FIELDS_2026-10-11.md).
+Mode actuel P07 : champs de 72,5 × 72,5 m, 196/289 piliers, alternant avec les
+parcours segmentés. Propriétaire unique, intersections locales, volumes fragmentés
+sans faces internes, métadonnées communes conservées tant qu’un coin reste utile.
+Grille de travail compressée aux bords des rectangles, oracle dense identique ;
+pics de génération observés 13–25 ms contre 125 ms initialement. Quinze suites
+natives passent, 72 districts audités ; SpanMap 3 225 600 colonnes, reset et
+traversées P07 vérifiés sur GPU. Six vues normales avec bloom inspectées.
+Web local contrôlé : 62 chunks retenus, 112 bakes, zéro attente, console propre.
+La vue depth utilise le milieu d’une allée calculé depuis l’espacement des piliers.
+La capture QA attend une échéance de 120 s plutôt qu’un nombre fixe de frames.
+Les bakes initiaux coûtent davantage dans les grands champs ouverts : ne pas
+confondre ces mesures avec le temps de génération ou les performances au repos.
+Priorité avant P08 : profilage et optimisation Web. Le contrôle stabilisé à
+1280 × 720 reste vers 26–33 FPS, y compris un essai sans overlay ; cause non
+isolée. Ne pas présenter ce pilote comme validé à 60 FPS. Ensuite P08 : zones
+noires spatiales/acoustiques. Aucun push.
+
 **P06 — profils de sites :** [architecture et audits](docs/P06_SITE_PROFILES_2026-10-11.md).
-Mode par défaut P06 : champ régulier de 25/36 piliers au départ, alternant avec
+Mode P06 conservé : champ régulier de 25/36 piliers au départ, alternant avec
 les ensembles ramifiés à distance. Passage bas 2,2 m vers plafond 4,8 m,
 trames de 4/5 m, trois sorties avec dégagement du joueur. Aucun système d'arches.
 Quatorze suites natives passent ; 72 sites, dont 30 champs, audités sur huit graines.

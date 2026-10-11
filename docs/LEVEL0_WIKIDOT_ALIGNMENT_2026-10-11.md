@@ -24,8 +24,8 @@ propositions initiales. Les fréquences et dimensions choisies sont des paramèt
 de jeu à éprouver ; elles ne sont pas imposées par le wiki.
 
 P06 introduit un champ de piliers régulier borné à une réservation P05, alternant
-avec les ensembles de pièces resserrées. P07 doit étendre les réservations sur
-plusieurs chunks avant de prétendre représenter les grandes étendues décrites.
+avec les ensembles de pièces resserrées. P07 étend désormais les réservations sur
+quatre chunks (72,5 × 72,5 m), sans prétendre atteindre les étendues kilométriques.
 Viennent ensuite les zones noires, les fosses, les pièces rouges et la
 réorganisation hors observation, chacune avec ses propres audits.
 

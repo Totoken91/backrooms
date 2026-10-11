@@ -135,8 +135,9 @@ func run() -> void:
 	c = s.chunks[Vector2i.ZERO]
 	c.relight = 1
 	s._bake_direct(c)
-	s.reset(LevelWorld.new(7,"P06"))
-	await settled(s, Vector3.ZERO)
+	s.reset(LevelWorld.new(7,"P07"))
+	for p in [Vector3.ZERO,Vector3(40.1,0,40.1),Vector3(-0.1,0,-0.1),Vector3(280.1,0,0),Vector3.ZERO]:
+		await settled(s,p)
 	check(s.world.panels_off.is_empty(), "new world has independent panel state")
 	metadata_baker.queue_free()
 	s.queue_free()

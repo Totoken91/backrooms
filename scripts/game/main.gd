@@ -217,7 +217,8 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 			return
 		var waited := 0
 		var bake_started := Time.get_ticks_usec()
-		while (streamer.pending_bakes() > 0 and waited < 4000) or waited < 90:
+		var bake_deadline := bake_started + int(float(options.get("capture_wait",120))*1000000)
+		while (streamer.pending_bakes() > 0 and Time.get_ticks_usec() < bake_deadline) or waited < 90:
 			await get_tree().process_frame
 			waited += 1
 			if options.has("profile") and waited % 120 == 0:
@@ -231,7 +232,8 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 				lights.switch_off(lamp)
 				waited = 0
 				bake_started = Time.get_ticks_usec()
-				while (streamer.pending_bakes() > 0 and waited < 4000) or waited < 30:
+				bake_deadline = bake_started + int(float(options.get("capture_wait",120))*1000000)
+				while (streamer.pending_bakes() > 0 and Time.get_ticks_usec() < bake_deadline) or waited < 30:
 					await get_tree().process_frame
 					waited += 1
 				bake_wait_ms += (Time.get_ticks_usec() - bake_started) / 1000.0
@@ -244,7 +246,10 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 			await get_tree().process_frame
 		for frame in 3: await get_tree().process_frame
 		var path := folder.path_join("godot-s%d-%s%s.png" % [world.seed, n, str(options.get("tag", ""))])
-		get_viewport().get_texture().get_image().save_png(path)
+		if get_viewport().get_texture().get_image().save_png(path) != OK:
+			printerr("FAIL: cannot save capture: ",path)
+			get_tree().quit(1)
+			return
 		# Compare material and lighting at precisely the same camera/bake.
 		if options.has("layers"):
 			var saved := {}
@@ -387,7 +392,7 @@ func _read_options() -> Dictionary:
 
 func new_exploration(seed := -1) -> void:
 	var value := seed if seed >= 0 else LevelWorld.fresh_seed(world.seed if world else -1)
-	world = LevelWorld.new(value, str(options.get("composition", "P06")))
+	world = LevelWorld.new(value, str(options.get("composition", "P07")))
 	world.geo_test = options.has("geotest")
 	player.flashlight.enabled = options.get("flashlight", "0") == "1"
 	flashlight_projector.configure(world, player, streamer.materials)

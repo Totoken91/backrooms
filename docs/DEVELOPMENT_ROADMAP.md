@@ -23,7 +23,7 @@ ne pas présenter les quatre patches de lampe comme une GI complète.
 | Étape | Objet | Critère de fin | État |
 |---|---|---|---|
 | P06 | Profils architecturaux distincts | Champ de piliers reconnaissable, alternant avec les parcours resserrés ; connectivité et rendu contrôlés | Pilote validé — voir P06_SITE_PROFILES_2026-10-11.md |
-| P07 | Réservations multi-chunks | Champs beaucoup plus vastes sans joints de génération, collisions ni lumière cassés ; budgets mémoire vérifiés | À faire |
+| P07 | Réservations multi-chunks | Champs beaucoup plus vastes sans joints de génération, collisions ni lumière cassés ; budgets mémoire vérifiés | Architecture validée ; optimisation Web à poursuivre |
 | P08 | Zones noires complètes | Profil spatial/acoustique et sources maîtrisées, transitions éclairées naturelles, lampe utile | À faire |
 | P09 | Fosses | Vrai sol absent, gravité et chute, volumes et ombres cohérents, chemins testés | À faire |
 | P10 | Pièces rouges | Pilote isolé, avertissements et seuil d'engagement définis, piège spatial contrôlé | À faire |
@@ -32,8 +32,13 @@ ne pas présenter les quatre patches de lampe comme une GI complète.
 
 P06 commence avec un pilote borné au site P05 : il sert à valider l'identité
 architecturale, pas à prétendre avoir déjà des étendues kilométriques.
-P07 devra traiter le propriétaire d'une réservation et ses volumes dans plusieurs
-chunks avant d'agrandir arbitrairement les rectangles.
+P07 utilise désormais un propriétaire partagé par quatre chunks et des volumes
+fragmentés sans faces internes. Voir P07_MULTI_CHUNK_FIELDS_2026-10-11.md.
+
+Avant P08 : profiler et optimiser le rendu Web des grands champs. Le contrôle
+P07 à 1280 × 720 est correct mais reste vers 26–33 FPS après bake ; le budget
+60 FPS n'est pas acquis. Isoler les coûts avant de modifier les shaders ou le
+streaming, conserver le bloom et les audits géométriques.
 
 ## Méthode à chaque étape
 
