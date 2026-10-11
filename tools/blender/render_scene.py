@@ -119,21 +119,30 @@ add_mesh("Walls", verts, faces, wall_m)
 # Floor and ceiling per open cell; panels are thin emissive slabs.
 fv, ff, cv, cf = [], [], [], []
 c = data["cell"]
+ceilings = {(x, z): h for x, z, h in data.get("ceilings", [])}
 for x, z in data["floors"]:
-    for (vs, fs, y) in [(fv, ff, 0.0), (cv, cf, H)]:
+    for (vs, fs, y) in [(fv, ff, 0.0), (cv, cf, ceilings.get((x, z), H))]:
         b = len(vs)
         vs += [to_b(x * c, y, z * c), to_b((x + 1) * c, y, z * c), to_b((x + 1) * c, y, (z + 1) * c), to_b(x * c, y, (z + 1) * c)]
         fs.append((b, b + 3, b + 2, b + 1) if y == 0 else (b, b + 1, b + 2, b + 3))
 add_mesh("Floor", fv, ff, floor_m)
 add_mesh("Ceiling", cv, cf, ceil_m)
+sv, sf = [], []
+for face in data.get("ceiling_steps", []):
+    b = len(sv)
+    sv.extend(to_b(*v) for v in face)
+    sf.append((b, b + 1, b + 2, b + 3))
+if sv:
+    add_mesh("CeilingSteps", sv, sf, wall_m)
 pv, pf, dv, df, powers = [], [], [], [], []
 # panel_keep: keep 1 panel out of N (light placement studies).
-for i, (x0, z0, x1, z1, power) in enumerate(data["fixtures"]):
+for i, fixture in enumerate(data["fixtures"]):
+    x0, z0, x1, z1, power = fixture[:5]
     if i % P.get("panel_keep", 1):
         continue
     vs, fs_ = (pv, pf) if power > 0.1 else (dv, df)
     b = len(vs)
-    y = H - 0.004
+    y = (fixture[5] if len(fixture) > 5 else H) - 0.004
     vs += [to_b(x0, y, z0), to_b(x1, y, z0), to_b(x1, y, z1), to_b(x0, y, z1)]  # frameless diffuser
     fs_.append((b, b + 3, b + 2, b + 1))
     if power > 0.1:

@@ -6,7 +6,6 @@ extends Node3D
 
 const CELL := LevelWorld.CELL
 const CHUNK := LevelWorld.CHUNK
-const H := LevelWorld.HEIGHT
 const TILE := LevelWorld.TILE
 const WALL_UV := 0.6
 const FIELD_RES := 32
@@ -70,7 +69,7 @@ func setup(world: LevelWorld, p_coord: Vector2i, materials: Dictionary, panel_me
 						solids.append(b)
 				# Only boxes filling the room's height hide the floor and ceiling (a
 				# duct roof or a raised floor leaves one of them visible).
-				if b.occluder and b.y0 <= 1e-6 and b.y1 >= H - 1e-6:
+				if b.occluder and b.y0 <= 1e-6 and b.y1 >= _world.ceiling_height(x, z) - 1e-6:
 					covered += maxf(0.0, minf(b.x1, (x + 1) * CELL) - maxf(b.x0, x * CELL)) * maxf(0.0, minf(b.z1, (z + 1) * CELL) - maxf(b.z0, z * CELL))
 			for f in _world.cell_fixtures(x, z):
 				fixtures.append(f)
@@ -218,11 +217,14 @@ func _emit_box(b) -> void:
 			_quad("skirting", E + up * 0.008, E + up * 0.008 + lip, E + up * 0.115 + lip, E + up * 0.115, along, n)
 	if b.y0 > 0.0:
 		_quad("wall", Vector3(b.x0, b.y0, b.z0), Vector3(b.x1, b.y0, b.z0), Vector3(b.x1, b.y0, b.z1), Vector3(b.x0, b.y0, b.z1), Vector3.DOWN)
-	if b.y1 < H - 1e-6:
+	if b.y1 < _world.ceiling_height(floori((b.x0 + b.x1) * 0.5 / CELL), floori((b.z0 + b.z1) * 0.5 / CELL)) - 1e-6:
 		_quad("wall", Vector3(b.x0, b.y1, b.z0), Vector3(b.x1, b.y1, b.z0), Vector3(b.x1, b.y1, b.z1), Vector3(b.x0, b.y1, b.z1), Vector3.UP)
 
 
 func _emit_floor_and_ceiling(x: int, z: int) -> void:
+	var h := _world.ceiling_height(x, z)
+	for face in _world.ceiling_steps(x, z):
+		_quad("wall", face[0], face[1], face[2], face[3], face[4])
 	var X := x * CELL
 	var Z := z * CELL
 	_quad("floor", Vector3(X, 0, Z), Vector3(X + CELL, 0, Z), Vector3(X + CELL, 0, Z + CELL), Vector3(X, 0, Z + CELL), Vector3.UP)
@@ -234,7 +236,7 @@ func _emit_floor_and_ceiling(x: int, z: int) -> void:
 				if f.x1 > X and f.x0 < X + CELL and f.z1 > Z and f.z0 < Z + CELL:
 					holes.append(f)
 	if holes.is_empty():
-		_quad("ceiling", Vector3(X, H, Z), Vector3(X + CELL, H, Z), Vector3(X + CELL, H, Z + CELL), Vector3(X, H, Z + CELL), Vector3.DOWN)
+		_quad("ceiling", Vector3(X, h, Z), Vector3(X + CELL, h, Z), Vector3(X + CELL, h, Z + CELL), Vector3(X, h, Z + CELL), Vector3.DOWN)
 		return
 	var n := int(round(CELL / TILE))
 	for j in n:
@@ -256,7 +258,7 @@ func _emit_floor_and_ceiling(x: int, z: int) -> void:
 				var a := X + run * TILE
 				var e := X + i * TILE
 				var c := Z + j * TILE
-				_quad("ceiling", Vector3(a, H, c), Vector3(e, H, c), Vector3(e, H, c + TILE), Vector3(a, H, c + TILE), Vector3.DOWN)
+				_quad("ceiling", Vector3(a, h, c), Vector3(e, h, c), Vector3(e, h, c + TILE), Vector3(a, h, c + TILE), Vector3.DOWN)
 				run = -1
 
 
@@ -266,13 +268,13 @@ func _add_colliders(body: StaticBody3D, boxes: Array) -> void:
 	boxes.sort_custom(func(p, q): return p.z0 < q.z0 or (p.z0 == q.z0 and (p.z1 < q.z1 or (p.z1 == q.z1 and p.x0 < q.x0))))
 	var run = null
 	for b in boxes:
-		var full: bool = b.y0 <= 0.0 and b.y1 >= H
-		if run != null and full and run[4] and run[1] == b.z0 and run[3] == b.z1 and absf(run[2] - b.x0) < 1e-6:
+		var full: bool = b.y0 <= 0.0
+		if run != null and full and run[4] and run[1] == b.z0 and run[3] == b.z1 and run[6] == b.y1 and absf(run[2] - b.x0) < 1e-6:
 			run[2] = b.x1
 			continue
 		if run != null:
 			_flush(body, run)
-		run = [b.x0, b.z0, b.x1, b.z1, full, b.y0, minf(b.y1, H)]
+		run = [b.x0, b.z0, b.x1, b.z1, full, b.y0, b.y1]
 	if run != null:
 		_flush(body, run)
 
@@ -299,7 +301,7 @@ func _build_panels(panel_mesh: Mesh) -> void:
 	mm.instance_count = fixtures.size()
 	for i in fixtures.size():
 		var f = fixtures[i]
-		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(f.x, H - 0.006, f.z)))
+		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(f.x, f.y - 0.006, f.z)))
 		mm.set_instance_custom_data(i, Color(0.0 if _world.panels_off.has(f.id) else PanelLights.power(0.0, f.seed, true), 0, 0, 0))
 	var node := MultiMeshInstance3D.new()
 	node.name = "Panels"
@@ -335,7 +337,7 @@ func bake_ao(slice_ms: float) -> void:
 			for cz in range(cz0, floori((wz + 1.0) / CELL) + 1):
 				for cx in range(cx0, floori((wx + 1.0) / CELL) + 1):
 					for b in _world.cell_boxes(cx, cz):
-						if not b.occluder or b.y0 > 1e-6 or b.y1 < H - 1e-6:
+						if not b.occluder or b.y0 > 1e-6 or b.y1 < _world.ceiling_height(cx, cz) - 1e-6:
 							continue
 						var dx: float = wx - clampf(wx, b.x0, b.x1)
 						var dz: float = wz - clampf(wz, b.z0, b.z1)

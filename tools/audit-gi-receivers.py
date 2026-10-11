@@ -63,10 +63,11 @@ def main():
     origin = (x, scene["eye"], z)
     boxes = scene["boxes"]
     ceiling = scene["height"]
+    ceilings = {(x, z): h for x, z, h in scene.get("ceilings", [])}
     geometry = list(boxes)
     cell = scene["cell"]
     for fx, fz in scene["floors"]:
-        for lo, hi in [(-.01, 0), (ceiling, ceiling + .01)]:
+        for lo, hi in [(-.01, 0), (ceilings.get((fx, fz), ceiling), 100)]:
             geometry.append([fx*cell, fz*cell, (fx+1)*cell, (fz+1)*cell, lo, hi])
     tangent = math.tan(math.radians(scene["fov"]) / 2)
     for row in range(3):
@@ -86,12 +87,12 @@ def main():
             at = (p[0] + .13 * normal[0], p[2] + .13 * normal[2])
             # Nearest lightmap receiver; full bilinear reconstruction uses four.
             q = tuple((math.floor(v / .25) + .5) * .25 for v in at)
-            gap = room_gap(boxes, *q, ceiling)
+            gap = room_gap(boxes, *q, ceilings.get((math.floor(q[0] / cell), math.floor(q[1] / cell)), ceiling))
             nx = nz = 0
             for k in range(1, 5):
                 r = k * .125
                 for dx, dz in [(r, 0), (-r, 0), (0, r), (0, -r)]:
-                    g = room_gap(boxes, q[0] + dx, q[1] + dz, ceiling)
+                    g = room_gap(boxes, q[0] + dx, q[1] + dz, ceilings.get((math.floor((q[0] + dx) / cell), math.floor((q[1] + dz) / cell)), ceiling))
                     if g[1] - g[0] < .1:
                         nx -= 1 if dx > 0 else -1 if dx < 0 else 0
                         nz -= 1 if dz > 0 else -1 if dz < 0 else 0

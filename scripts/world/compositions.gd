@@ -90,6 +90,57 @@ static func c01(pick: Callable, site_w: int, site_d: int) -> Dictionary:
 	}
 
 
+## C02 pilot: a low, narrow entry opens tangentially into a taller room.
+## Height regions align with whole world cells so ceiling tiles never straddle
+## a height change. This is a finite authored composition, not random tall cells.
+static func c02(pick: Callable, site_w: int, site_d: int) -> Dictionary:
+	var room := [q(2.5), q(1.25), q(15.0), q(10.0)]
+	var free := [
+		{"name": "room", "rect": room},
+		{"name": "E1", "rect": [q(3.125), room[3], q(4.875), site_d], "exit": "south"},
+		{"name": "E2", "rect": [0, q(2.875), room[0], q(4.375)], "exit": "west"},
+		{"name": "E3", "rect": [room[2], q(7.875), site_w, q(9.625)], "exit": "east"},
+	]
+	var solid := [{"name": "return", "rect": [q(8.75), q(5.0), q(9.375), room[3]]}]
+	var fixtures := []
+	var cell := q(LevelWorld.CELL)
+	for zi in range(site_d / cell):
+		for xi in range(site_w / cell):
+			var cx := xi * cell + cell / 2
+			var cz := zi * cell + cell / 2
+			var key := xi + zi * 64
+			if zi == 4 or pick.call("fixtures.hole.%d" % key, 100) < 12:
+				continue
+			fixtures.append({"rect": [cx - 3, cz - 3, cx + 3, cz + 3], "key": key})
+	var views := {
+		"entry": {"x": q(4.0), "z": q(16.0), "yaw": 0.0, "label": "Passage bas : ouverture en retrait"},
+		"reveal": {"x": q(4.0), "z": q(9.25), "yaw": 0.8, "label": "Révélation : plafond haut et profondeur masquée"},
+		"interior": {"x": q(11.25), "z": q(3.75), "yaw": -2.4, "label": "Intérieur : contrechamp derrière le retour de cloison"},
+		"east": {"x": q(13.75), "z": q(8.75), "yaw": -1.6, "label": "Allée est : retour de cloison"},
+	}
+	var mirror: bool = pick.call("template", 2) == 1
+	if mirror:
+		for list in [free, solid, fixtures]:
+			for item in list:
+				var r: Array = item.rect
+				item.rect = [site_w - r[2], r[1], site_w - r[0], r[3]]
+		for item in free:
+			if item.get("exit") == "west": item.exit = "east"
+			elif item.get("exit") == "east": item.exit = "west"
+		for v in views.values():
+			v.x = site_w - v.x
+			v.yaw = -v.yaw
+	return {
+		"id": "C02", "name": "Compression et ouverture", "height": 4.8,
+		"variant": {"mirror": mirror}, "free": free, "solid": solid,
+		"lintels": [], "fixtures": fixtures, "views": views, "spawn": "entry",
+		"fixture_margin": q(0.15), "ceiling_regions": [
+			{"rect": [0, 0, site_w, q(10.0)], "height": 4.8},
+			{"rect": [0, q(10.0), site_w, site_d], "height": 2.2},
+		],
+	}
+
+
 ## Occupancy and a deterministic, non-overlapping rectangle cover of the solid
 ## parts of a site. Rows of equal runs merge vertically.
 static func resolve(c: Dictionary, w: int, d: int) -> Dictionary:

@@ -1,5 +1,14 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**C02 jouable et plafonds variables :** [composition pilote, architecture et validation](docs/C02_VARIABLE_CEILINGS_2026-10-11.md).
+Le jeu démarre désormais dans un passage à 2,2 m ouvrant sur une pièce à 4,8 m.
+Trois sorties vers le labyrinthe ; variantes miroir/néons par graine. Panneaux,
+meshes, collisions murales, spans, shaders et export utilisent les hauteurs locales.
+C01 reste accessible avec `composition=C01` ; quinze images de contrôle identiques.
+Six suites passées, Web local 99 passes/zéro attente/console propre. Pilote fini :
+pas encore d'assemblage infini des familles, de mezzanine ni d'espace colossal.
+Aucun push ni déploiement.
+
 **Chargement et extinction :** [validation ciblée et invalidation des passes suspendues](docs/STREAMING_VALIDATION_2026-10-11.md).
 Extinction pendant une passe : résultat périmé désormais rejeté par révision,
 monde et propriétaire. Test ordonnanceur avec slots GPU, coordonnées négatives,
@@ -116,7 +125,7 @@ build avec `[skip ci]`).
 
 ### Monde
 - `scripts/world/level_world.gd` — `LevelWorld` : cellules de 2,5 m, chunks de
-  16 cellules (40 m). `HEIGHT = 3.2` (plafond), `TILE = CELL/3` (dalles de
+  16 cellules (40 m). `HEIGHT = 3.2` (plafond classique ; C02 utilise 2,2/4,8 m), `TILE = CELL/3` (dalles de
   plafond 0,833 m), `PANEL = TILE` (néons carrés sans cadre, centrés dans leur
   cellule, grille régulière ; trous selon `light_density` > 0,34 et 8 %
   manquants). `cell_boxes`, `cell_fixtures`, `floor_height`/`ceiling_height`
@@ -215,8 +224,9 @@ il faut s'accroupir, autres levels plus tard) :
        l'impact. À vérifier en premier : dumper les valeurs aux points d'impact
        (`dump`), essayer un i_max/e_max plus petit ou un encodage log.
    - à faire ensuite : couche « étage 2 » (mezzanines) quand la génération en
-     aura besoin ; plafonds plus hauts que `HEIGHT` (le maillage suppose
-     encore H pour les murs pleine hauteur).
+     aura besoin. Plafonds variables : pilote C02 réalisé, voir la mise à jour en tête.
+     Diagnostic historique avant C02 : le maillage supposait
+     encore H pour les murs pleine hauteur.
 4. **À faire** — grandes distances / espaces colossaux (cascades, portée des
    rayons > marge de 10 m du `SpanMap`).
 

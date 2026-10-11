@@ -74,7 +74,7 @@ float wall_direct(vec2 p, int axis, float y) {
 	float h0 = axis == 0 ? a.y : axis == 1 ? a.z : axis == 2 ? a.w : a.x;
 	float h1 = axis == 0 ? b.y : axis == 1 ? b.z : axis == 2 ? b.w : b.x;
 	float h2 = axis == 0 ? c.y : axis == 1 ? c.z : axis == 2 ? c.w : c.x;
-	return wall_profile(h0, h1, h2, y, column_gap(p), ceiling - 0.01);
+	return wall_profile(h0, h1, h2, y, column_gap(p), structural_ceiling(p, ceiling) - 0.01);
 }
 
 void fragment() {
@@ -179,7 +179,7 @@ void fragment() {
 						} else {
 							// Ceiling (no direct light: the panels face down), or the
 							// underside of a lintel, lit from below like the ceiling.
-							vec3 alb = face_y > ceiling - 0.1 ? ceiling_albedo : wall_albedo;
+							vec3 alb = face_y > structural_ceiling(q, ceiling) - 0.1 ? ceiling_albedo : wall_albedo;
 							radiance = alb * bmap(6, q) / PI;
 						}
 						break;

@@ -14,6 +14,9 @@ const EMPTY := -100.0
 const BELOW := -10.0
 const ABOVE := 100.0
 
+## Cell-resolution structural ceiling metadata, distinct from duct/lintel gaps.
+var room_heights: Image
+var room_origin: Vector2
 var a: Image
 var b: Image
 var origin: Vector2
@@ -53,6 +56,11 @@ static func _create(p_origin: Vector2, p_size: int, p_texel: float) -> SpanMap:
 	m.origin = p_origin
 	m.size = p_size
 	m.texel = p_texel
+	m.room_origin = (p_origin / LevelWorld.CELL).floor() * LevelWorld.CELL
+	var end := ((p_origin + Vector2(p_size, p_size) * p_texel) / LevelWorld.CELL).ceil()
+	var extent := Vector2i(end - m.room_origin / LevelWorld.CELL)
+	m.room_heights = Image.create(extent.x, extent.y, false, Image.FORMAT_RGBAF)
+	m.room_heights.fill(Color(0, LevelWorld.HEIGHT, 0, 0))
 	m.a = Image.create(p_size, p_size, false, Image.FORMAT_RGBAH)
 	m.b = Image.create(p_size, p_size, false, Image.FORMAT_RGBAH)
 	return m
@@ -77,6 +85,7 @@ func _raster_cell(world: LevelWorld, cx: int, cz: int) -> void:
 		return
 	var fl := world.floor_height(cx, cz)
 	var ce := world.ceiling_height(cx, cz)
+	room_heights.set_pixel(cx - floori(room_origin.x / cell), cz - floori(room_origin.y / cell), Color(fl, ce, 0, 0))
 	var boxes := world.cell_boxes(cx, cz)
 	var room := [[BELOW, fl], [ce, ABOVE]]
 	if boxes.is_empty():

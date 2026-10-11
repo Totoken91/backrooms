@@ -146,9 +146,12 @@ func prepare_spans(world: LevelWorld, coord: Vector2i) -> SpanMap:
 func _set_spans(m: ShaderMaterial, map: SpanMap, coord: Vector2i) -> void:
 	var started := Time.get_ticks_usec()
 	if not _span_textures.has(coord) or _span_cache.get(coord) != map:
-		_span_textures[coord] = [ImageTexture.create_from_image(map.a), ImageTexture.create_from_image(map.b)]
+		_span_textures[coord] = [ImageTexture.create_from_image(map.a), ImageTexture.create_from_image(map.b), ImageTexture.create_from_image(map.room_heights)]
 	m.set_shader_parameter("span_a", _span_textures[coord][0])
 	m.set_shader_parameter("span_b", _span_textures[coord][1])
+	m.set_shader_parameter("room_heights", _span_textures[coord][2])
+	m.set_shader_parameter("room_origin", map.room_origin - chunk_origin(coord))
+	m.set_shader_parameter("has_room_heights", true)
 	m.set_shader_parameter("occ_origin", Vector2(-MARGIN, -MARGIN))
 	m.set_shader_parameter("occ_size", Vector2(map.size, map.size))
 	record_time("span_upload_cpu", started)

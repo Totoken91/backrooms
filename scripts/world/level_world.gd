@@ -4,8 +4,8 @@ extends RefCounted
 ## by meshing, collision and lighting. The 2.5 m cell is only a spatial index
 ## and the unit of the classic baseline maze.
 ##
-## Generator "level0-godot.1": the classic maze everywhere, except a reserved
-## 17.5 m site at the origin holding the C01 composition (spawn). Site exits
+## C01 baseline / C02 height-contrast pilot: classic maze except a reserved
+## 17.5 m site at the origin holding the selected composition (spawn). Site exits
 ## always face odd maze cells, which the maze spanning tree reaches.
 
 const CELL := 2.5
@@ -60,7 +60,10 @@ class Fixture:
 
 
 var seed: int
+var version := VERSION
 var version_hash := Hashing.text(VERSION)
+var composition := "C01"
+var _ceiling_cells := {}
 var spawn: Dictionary
 var views := {}
 var composition_report := {}
@@ -80,8 +83,12 @@ var _site_boxes: Array[Box] = []
 var _site_fixtures: Array[Fixture] = []
 
 
-func _init(p_seed: int) -> void:
+func _init(p_seed: int, p_composition := "C01") -> void:
 	seed = Hashing.u32(p_seed)
+	composition = "C02" if p_composition == "C02" else "C01"
+	if composition == "C02":
+		version = "level0-godot.2-C02"
+		version_hash = Hashing.text(version)
 	_build_site()
 
 
@@ -285,16 +292,22 @@ func prune(cx: int, cz: int, keep := 4) -> void:
 func _build_site() -> void:
 	var w := int(SITE.size.x * CELL / Compositions.Q)
 	var d := int(SITE.size.y * CELL / Compositions.Q)
-	var pick := func(domain: String, n: int) -> int: return channel("C01." + domain) % n
-	var c := Compositions.c01(pick, w, d)
+	var pick := func(domain: String, n: int) -> int: return channel(composition + "." + domain) % n
+	var c := Compositions.c02(pick, w, d) if composition == "C02" else Compositions.c01(pick, w, d)
 	var resolved := Compositions.resolve(c, w, d)
 	site_grid = resolved.grid
 	var ox := SITE.position.x * CELL
 	var oz := SITE.position.y * CELL
 	var Q := Compositions.Q
+	for region in c.get("ceiling_regions", []):
+		var r: Array = region.rect
+		for z in range(int(r[1] * Q / CELL), int(r[3] * Q / CELL)):
+			for x in range(int(r[0] * Q / CELL), int(r[2] * Q / CELL)):
+				_ceiling_cells[SITE.position + Vector2i(x, z)] = float(region.height)
 	var i := 0
 	for r in resolved.boxes:
 		var b := Box.new("s%d" % i, "wall", ox + r[0] * Q, oz + r[1] * Q, ox + r[2] * Q, oz + r[3] * Q)
+		b.y1 = c.height
 		_site_boxes.append(b)
 		i += 1
 	i = 0
@@ -316,7 +329,8 @@ func _build_site() -> void:
 		fx.z0 = fx.z - PANEL * 0.5
 		fx.x1 = fx.x + PANEL * 0.5
 		fx.z1 = fx.z + PANEL * 0.5
-		fx.seed = channel("C01.fixtures", [f.key])
+		fx.seed = channel(composition + ".fixtures", [f.key])
+		fx.y = ceiling_height(floori(fx.x / CELL), floori(fx.z / CELL))
 		_site_fixtures.append(fx)
 	for b in _site_boxes:
 		for z in range(floori(b.z0 / CELL), floori((b.z1 - EPS) / CELL) + 1):
@@ -427,13 +441,54 @@ func cell_fixtures(x: int, z: int) -> Array:
 
 
 ## Floor and ceiling heights of a cell (the room's solid slabs, see SpanMap).
-## Constant in Level 0; generation rules can vary them per cell.
+## C01 and the classic maze are flat; C02 supplies cell-aligned ceiling regions.
 func floor_height(_x: int, _z: int) -> float:
 	return 0.0
 
 
-func ceiling_height(_x: int, _z: int) -> float:
-	return HEIGHT
+func ceiling_height(x: int, z: int) -> float:
+	return _ceiling_cells.get(Vector2i(x, z), HEIGHT)
+
+
+## Exposed faces of a ceiling step, owned by the higher cell. Shared by the
+## game mesh and scene export; full-height wall footprints hide covered parts.
+func ceiling_steps(x: int, z: int) -> Array:
+	var faces := []
+	var h := ceiling_height(x, z)
+	for side in 4:
+		var d: Vector2i = DIRS[side]
+		var low := ceiling_height(x + d.x, z + d.y)
+		if h <= low + 1e-6: continue
+		var horizontal := side == 0 or side == 2
+		var t0 := (x if horizontal else z) * CELL
+		var plane := (z if side == 0 else x + 1 if side == 1 else z + 1 if side == 2 else x) * CELL
+		var cuts := [t0, t0 + CELL]
+		var boxes := cell_boxes(x, z) + cell_boxes(x + d.x, z + d.y)
+		for b in boxes:
+			var a: float = maxf(t0, b.x0 if horizontal else b.z0)
+			var e: float = minf(t0 + CELL, b.x1 if horizontal else b.z1)
+			if e > a:
+				cuts.append(a)
+				cuts.append(e)
+		cuts.sort()
+		for i in cuts.size() - 1:
+			var a: float = cuts[i]
+			var e: float = cuts[i + 1]
+			if e - a < 1e-6: continue
+			var mid := (a + e) * 0.5
+			var hidden := false
+			for b in boxes:
+				var along: bool = mid > (b.x0 if horizontal else b.z0) and mid < (b.x1 if horizontal else b.z1)
+				var across: bool = plane >= (b.z0 if horizontal else b.x0) - 1e-6 and plane <= (b.z1 if horizontal else b.x1) + 1e-6
+				if along and across and b.y0 <= low and b.y1 >= h:
+					hidden = true
+					break
+			if hidden: continue
+			var A := Vector3(a, low, plane) if horizontal else Vector3(plane, low, a)
+			var E := Vector3(e, low, plane) if horizontal else Vector3(plane, low, e)
+			var n := -Vector3(d.x, 0, d.y)
+			faces.append([A, E, E + Vector3.UP * (h - low), A + Vector3.UP * (h - low), n])
+	return faces
 
 
 func point_blocked(x: float, z: float) -> bool:

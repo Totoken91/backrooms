@@ -135,6 +135,7 @@ func _ready() -> void:
 		view(options.view)
 	_update_ui()
 	if options.has("export_scene"):
+		set_process(false)
 		_export_scene(str(options.export_scene))
 		get_tree().quit()
 		return
@@ -258,6 +259,16 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 			f.store_string(JSON.stringify(data, "\t"))
 	if options.has("hold"):
 		await get_tree().create_timer(float(options.hold)).timeout
+	# Stop scheduling outer-ring jobs, then let the current coroutine finish.
+	# Quitting during a background bake otherwise leaves its resources alive.
+	set_process(false)
+	for frame in 1000:
+		if not streamer._baking: break
+		await get_tree().process_frame
+	if streamer._baking:
+		printerr("FAIL: capture shutdown bake did not finish")
+		get_tree().quit(1)
+		return
 	get_tree().quit()
 
 
@@ -308,12 +319,25 @@ func _read_options() -> Dictionary:
 
 func new_exploration(seed := -1) -> void:
 	var value := seed if seed >= 0 else LevelWorld.fresh_seed(world.seed if world else -1)
-	world = LevelWorld.new(value)
+	world = LevelWorld.new(value, str(options.get("composition", "C02")))
 	world.geo_test = options.has("geotest")
 	lights.world = world
+	# Finite composition metadata for the surface shader; outside this site the
+	# classic ceiling is unchanged. Bake metadata comes from the same queries.
+	var heights := Image.create(LevelWorld.SITE.size.x, LevelWorld.SITE.size.y, false, Image.FORMAT_RGBAF)
+	for z in LevelWorld.SITE.size.y:
+		for x in LevelWorld.SITE.size.x:
+			var c := LevelWorld.SITE.position + Vector2i(x, z)
+			heights.set_pixel(x, z, Color(world.floor_height(c.x, c.y), world.ceiling_height(c.x, c.y), 0, 0))
+	var height_texture := ImageTexture.create_from_image(heights)
+	for m in streamer.materials.values():
+		m.set_shader_parameter("room_heights", height_texture)
+		m.set_shader_parameter("room_origin", Vector2(LevelWorld.SITE.position) * LevelWorld.CELL)
+		m.set_shader_parameter("has_room_heights", true)
 	streamer.reset(world)
 	player.place(world.spawn.position, world.spawn.yaw)
-	streamer.warm(player.global_position)
+	if not options.has("export_scene"):
+		streamer.warm(player.global_position)
 	lights.refresh_panels()
 	_update_ui()
 
@@ -628,7 +652,7 @@ func _update_ui() -> void:
 	_ui.title.visible = not started
 	_ui.pause.visible = paused
 	if world:
-		_ui.seed.text = "GRAINE %d · %s · %s" % [world.seed, LevelWorld.VERSION, BUILD]
+		_ui.seed.text = "GRAINE %d · %s · %s" % [world.seed, world.version, BUILD]
 
 
 func _update_debug() -> void:
@@ -638,7 +662,7 @@ func _update_debug() -> void:
 	var p := player.global_position
 	var cell := Vector2i(floori(p.x / LevelWorld.CELL), floori(p.z / LevelWorld.CELL))
 	var kind := world.cell_kind(cell.x, cell.y)
-	var zone: String = ["labyrinthe", "mur", "site C01"][clampi(kind, 0, 2)]
+	var zone: String = ["labyrinthe", "mur", "site " + world.composition][clampi(kind, 0, 2)]
 	var yaw_deg := fposmod(rad_to_deg(player.yaw()), 360.0)
 	var heading: String = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"][int(round(yaw_deg / 45.0)) % 8]
 	var light := streamer.light_at(p)
@@ -649,7 +673,7 @@ func _update_debug() -> void:
 ".join([
 		"HORS PLAN · DEBUG    F3 masquer · K skate · F7 vue lumière · F8 éteindre le néon proche",
 		"FPS %d · image p50 %.1f / p95 %.1f / max %.1f ms · %dx%d" % [Engine.get_frames_per_second(), q.call(0.5), q.call(0.95), q.call(1.0), size.x, size.y],
-		"graine %d · %s · %s" % [world.seed, LevelWorld.VERSION, BUILD],
+		"graine %d · %s · %s" % [world.seed, world.version, BUILD],
 		"position x %.2f  y %.2f  z %.2f · cellule (%d, %d) · chunk %s" % [p.x, p.y, p.z, cell.x, cell.y, WorldStreamer.chunk_of(p)],
 		"cap %.0f° %s · tangage %.0f°" % [yaw_deg, heading, rad_to_deg(player.pitch())],
 		"%s · %.1f m/s (%.0f km/h) · parcouru %.0f m · session %d:%02d" % [mode, player.speed, player.speed * 3.6, player.walked, int(_session) / 60, int(_session) % 60],
@@ -666,14 +690,23 @@ func _update_debug() -> void:
 func _export_scene(path: String) -> void:
 	var boxes := {}
 	var fixtures := {}
+	var ceilings := []
+	var ceiling_steps := []
 	var s: Vector3 = world.spawn.position
 	var c := Vector2i(floori(s.x / LevelWorld.CELL), floori(s.z / LevelWorld.CELL))
 	for z in range(c.y - 24, c.y + 25):
 		for x in range(c.x - 24, c.x + 25):
+			ceilings.append([x, z, world.ceiling_height(x, z)])
+			for face in world.ceiling_steps(x, z):
+				var vertices := []
+				var order := [0, 1, 2, 3] if (face[1] - face[0]).cross(face[2] - face[0]).dot(face[4]) > 0 else [0, 3, 2, 1]
+				for i in order:
+					vertices.append([face[i].x, face[i].y, face[i].z])
+				ceiling_steps.append(vertices)
 			for b in world.cell_boxes(x, z):
 				boxes[b.id] = [b.x0, b.z0, b.x1, b.z1, b.y0, b.y1]
 			for f in world.cell_fixtures(x, z):
-				fixtures[f.id] = [f.x0, f.z0, f.x1, f.z1, PanelLights.power(0.0, f.seed, true)]
+				fixtures[f.id] = [f.x0, f.z0, f.x1, f.z1, PanelLights.power(0.0, f.seed, true), f.y]
 			if world.cell_kind(x, z) != 1:
 				boxes["floor%d,%d" % [x, z]] = null
 	var floors := []
@@ -687,7 +720,7 @@ func _export_scene(path: String) -> void:
 		var v: Dictionary = world.views[k]
 		views[k] = [v.position.x, v.position.z, v.yaw]
 	var data := {"cell": LevelWorld.CELL, "height": LevelWorld.HEIGHT, "eye": Player.EYE, "fov": player.camera.fov,
-		"boxes": boxes.values(), "fixtures": fixtures.values(), "floors": floors, "views": views, "seed": world.seed}
+		"boxes": boxes.values(), "fixtures": fixtures.values(), "floors": floors, "ceilings": ceilings, "ceiling_steps": ceiling_steps, "views": views, "seed": world.seed, "generator_version": world.version}
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	f.store_string(JSON.stringify(data))
 	print("scene: %d boxes, %d panels" % [boxes.size(), fixtures.size()])

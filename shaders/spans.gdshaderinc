@@ -78,3 +78,5 @@ float visible(vec3 a, vec3 b) {
 	}
 	return 1.0;
 }
+
+#include "res://shaders/structural_room.gdshaderinc"
