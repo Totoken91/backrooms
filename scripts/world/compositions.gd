@@ -47,21 +47,22 @@ static func c01(pick: Callable, site_w: int, site_d: int) -> Dictionary:
 		{"name": "E2 head", "rect": free[2].rect, "y0": 2.2, "y1": 2.8},
 		{"name": "B1", "rect": [p1_end - thick, room[1], p1_end, p1_north], "y0": 2.3, "y1": 2.8},
 	]
-	# Panels replace two ceiling tiles on the world 0.625 m grid. A regular
-	# room grid; panels too close to a wall or bulkhead are omitted.
-	# Irregular on purpose: candidates on a loose room grid, each kept with a
-	# probability and nudged by one ceiling module; the entry corner always
-	# keeps light. Placement follows the references: lit areas and dark gaps.
+	# Panels: square 2 × 2 ft troffers, one centred in each 2.5 m cell of the
+	# world grid (the site origin and width are whole cells, mirror included),
+	# like the references: a regular, symmetric grid. A few are missing; panels
+	# too close to a wall or bulkhead are omitted (resolve).
 	var fixtures := []
-	for zi in 5:
-		for xi in 4:
-			var key := xi + zi * 4
-			var entry := zi >= 3 and xi <= 1
-			if not entry and pick.call("fixtures.keep.%d" % key, 100) >= 55:
+	var cell := q(2.5)
+	for zi in range(0, site_d / cell):
+		for xi in range(0, site_w / cell):
+			var cx := xi * cell + cell / 2
+			var cz := zi * cell + cell / 2
+			if cx < room[0] or cx > room[2] or cz < room[1] or cz > room[3]:
 				continue
-			var cx := q(3.75) + xi * q(3.125) + (int(pick.call("fixtures.dx.%d" % key, 3)) - 1) * step
-			var z0 := q(2.5) + zi * q(3.125) + (int(pick.call("fixtures.dz.%d" % key, 3)) - 1) * step
-			fixtures.append({"rect": [cx - step, z0, cx + step, z0 + step], "key": key})
+			var key := xi + zi * 64
+			if pick.call("fixtures.hole.%d" % key, 100) < 8:
+				continue
+			fixtures.append({"rect": [cx - 3, cz - 3, cx + 3, cz + 3], "key": key})
 	var views := {
 		"entry": {"x": q(7.5), "z": q(15.25), "yaw": 0.7, "label": "Entrée : la cloison proche masque la poche nord-ouest"},
 		"reveal": {"x": q(10.625), "z": q(6.25), "yaw": -1.26, "label": "Révélation : la poche et sa sortie apparaissent après le retour de cloison"},

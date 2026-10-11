@@ -22,6 +22,6 @@ while kill -0 $PID 2>/dev/null; do
 done
 kill $PID 2>/dev/null
 taskkill //F //FI "IMAGENAME eq Godot_v4.6-stable_win64.exe" //FI "WINDOWTITLE eq Hors Plan*" > /dev/null 2>&1
-grep -E "capture |SCRIPT ERROR|Parse Error|SHADER ERROR|ERROR: .*shader|at: " "$LOG" | sort -u | cut -c1-220 | head -30
+grep -E "capture |switch off|SCRIPT ERROR|Parse Error|SHADER ERROR|ERROR: .*shader|at: " "$LOG" | sort -u | cut -c1-220 | head -30
 rm -f "$LOG"
 exit $STATUS

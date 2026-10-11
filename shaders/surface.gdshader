@@ -9,7 +9,7 @@ render_mode unshaded, cull_back;
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 // Linear multiplier on the linear albedo (the Cycles material tints).
 uniform vec3 tint = vec3(1.0);
-// 1 draws the 2 × 4 ft suspended-ceiling grid from the UVs.
+// 1 draws the 2 × 2 ft suspended-ceiling grid from the UVs.
 uniform bool ceiling_grid = false;
 // 1 adds a little damp near the floor (wallpaper).
 uniform bool wall_damp = false;
@@ -29,6 +29,8 @@ uniform float ceiling_height = 2.8;
 // 4 AO, 5 grey 0.18, 6 albedo, 7 contact, 8 direct E / π, 9 indirect E / π
 // (8 and 9 with the raw option: linear tonemap, comparable to Cycles passes).
 uniform float debug_view = 0.0;
+// Power factor of the flicker groups 1..3 (PanelLights), 1 = as baked.
+uniform vec3 group_power = vec3(1.0);
 
 varying vec3 world_pos;
 varying vec3 world_normal;
@@ -90,8 +92,10 @@ void fragment() {
 		color = mix(color, color * vec3(0.68, 0.71, 0.52), damp * 0.23);
 	}
 	if (ceiling_grid) {
-		// 2 × 4 ft tiles (0.625 × 1.25 m) with thin, light T-bar seams.
-		vec2 tile = UV * vec2(1.0, 0.5);
+		// 2 × 2 ft tiles (0.625 m) with thin T-bar seams; the grid is offset
+		// half a tile so a tile is centred in each 2.5 m cell, where the
+		// square panels sit.
+		vec2 tile = UV + 0.5;
 		vec2 q = fract(tile);
 		vec2 width = fwidth(tile) * 1.2;
 		float seam = max(1.0 - smoothstep(0.0, width.x + 0.004, min(q.x, 1.0 - q.x)), 1.0 - smoothstep(0.0, width.y + 0.002, min(q.y, 1.0 - q.y)));
@@ -120,6 +124,18 @@ void fragment() {
 		direct = vec3(wall_profile(h0, h1, h2, world_pos.y));
 		vec3 b = light_map(9, at).rgb;
 		bounce = b * b * i_max;
+	}
+	// Flicker: each group's share of the direct light here (baked) follows the
+	// group's power; the indirect light follows a share smoothed over ~1.5 m.
+	vec3 dim = vec3(1.0) - group_power;
+	if (dim.x + dim.y + dim.z > 0.001) {
+		direct *= max(1.0 - dot(d3.yzw, dim), 0.0);
+		vec3 share = d3.yzw;
+		for (int k = 0; k < 4; k++) {
+			vec4 n = light_map(3, at + vec2(k < 2 ? (k == 0 ? 1.5 : -1.5) : 0.0, k >= 2 ? (k == 2 ? 1.5 : -1.5) : 0.0));
+			share += n.yzw * n.yzw * e_max;
+		}
+		bounce *= max(1.0 - 0.8 * dot(share / 5.0, dim), 0.0);
 	}
 	// Contact occlusion: full on the floor, fading up the wall from its foot
 	// and down from the ceiling, so corners and junctions darken softly.

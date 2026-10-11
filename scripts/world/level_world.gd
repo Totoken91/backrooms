@@ -11,6 +11,8 @@ extends RefCounted
 const CELL := 2.5
 const CHUNK := 16
 const HEIGHT := 2.8
+## Side of the square 2 × 2 ft panels (diffuser), centred in their cell.
+const PANEL := 0.6
 const VERSION := "level0-godot.1"
 const BODY_HEIGHT := 1.9
 const SITE := Rect2i(2, 2, 7, 7)
@@ -62,6 +64,8 @@ var site_grid: PackedByteArray
 
 var _chunks := {}
 var _maze_boxes := {}
+## Panels switched off for good during the exploration (fixture id -> true).
+var panels_off := {}
 var _maze_fixtures := {}
 var _site_index := {}
 var _site_fixture_index := {}
@@ -299,12 +303,12 @@ func _build_site() -> void:
 		var r: Array = f.rect
 		var fx := Fixture.new()
 		fx.id = "c%d" % f.key
-		fx.x0 = ox + r[0] * Q
-		fx.z0 = oz + r[1] * Q
-		fx.x1 = ox + r[2] * Q
-		fx.z1 = oz + r[3] * Q
-		fx.x = (fx.x0 + fx.x1) * 0.5
-		fx.z = (fx.z0 + fx.z1) * 0.5
+		fx.x = ox + (r[0] + r[2]) * 0.5 * Q
+		fx.z = oz + (r[1] + r[3]) * 0.5 * Q
+		fx.x0 = fx.x - PANEL * 0.5
+		fx.z0 = fx.z - PANEL * 0.5
+		fx.x1 = fx.x + PANEL * 0.5
+		fx.z1 = fx.z + PANEL * 0.5
 		fx.seed = channel("C01.fixtures", [f.key])
 		_site_fixtures.append(fx)
 	for b in _site_boxes:
@@ -362,10 +366,10 @@ func light_density(x: int, z: int) -> float:
 	return lerpf(lerpf(v.call(lx, lz), v.call(lx + 1, lz), tx), lerpf(v.call(lx, lz + 1), v.call(lx + 1, lz + 1), tx), tz)
 
 
-## Maze panels: irregular, density-driven. A cell keeps a panel with a
-## probability following light_density; the panel takes one of 12 positions
-## on the 0.625 m ceiling grid, away from solid neighbours. Site panels come
-## from C01.
+## Maze panels: square 2 × 2 ft troffers on the world grid, one centred in
+## each open cell, like the references; lit stretches and dark ones follow
+## light_density (no panel at all where it is low), and a few panels are
+## missing. Site panels come from C01.
 func cell_fixtures(x: int, z: int) -> Array:
 	var kind := cell_kind(x, z)
 	if kind == 2:
@@ -375,30 +379,17 @@ func cell_fixtures(x: int, z: int) -> Array:
 	var k := Vector2i(x, z)
 	if _maze_fixtures.has(k):
 		return _maze_fixtures[k]
-	# Dark stretches (no panel at all) are wanted: they are frightening.
-	var chance := clampf((light_density(x, z) - 0.28) * 1.25, 0.0, 0.7)
 	var result := []
-	if float(channel("fixtures.place", [x, z]) % 1000) / 1000.0 < chance:
-		var slot := channel("fixtures.slot", [x, z]) % 12
-		var ox := (slot % 3) * 0.625
-		var oz := (slot / 3) * 0.625
-		# Keep 0.3 m from walls: slide away from a solid neighbour.
-		if cell_kind(x - 1, z) == 1 and ox < 0.3:
-			ox = 0.625
-		if cell_kind(x + 1, z) == 1 and ox + 1.25 > CELL - 0.3:
-			ox = 0.625
-		if cell_kind(x, z - 1) == 1 and oz < 0.3:
-			oz = 0.625
-		if cell_kind(x, z + 1) == 1 and oz + 0.625 > CELL - 0.3:
-			oz = 1.25
+	# Dark stretches (no panel at all) are wanted: they are frightening.
+	if light_density(x, z) > 0.34 and channel("fixtures.hole", [x, z]) % 100 >= 8:
 		var f := Fixture.new()
 		f.id = "f%d,%d" % [x, z]
-		f.x0 = x * CELL + ox
-		f.z0 = z * CELL + oz
-		f.x1 = f.x0 + 1.25
-		f.z1 = f.z0 + 0.625
-		f.x = (f.x0 + f.x1) * 0.5
-		f.z = (f.z0 + f.z1) * 0.5
+		f.x = (x + 0.5) * CELL
+		f.z = (z + 0.5) * CELL
+		f.x0 = f.x - PANEL * 0.5
+		f.z0 = f.z - PANEL * 0.5
+		f.x1 = f.x + PANEL * 0.5
+		f.z1 = f.z + PANEL * 0.5
 		f.seed = channel("fixtures.seed", [x, z])
 		result = [f]
 	_maze_fixtures[k] = result

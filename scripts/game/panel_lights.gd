@@ -1,142 +1,103 @@
 class_name PanelLights
 extends Node3D
-## Real Godot lights for the panels nearest the camera (shadowed downward
-## spots), and the flicker that drives both those lights and every panel's
-## emission. The irradiance field carries all other panels.
+## Panel states over time. Steady panels never change. Flickering panels
+## belong to one of GROUPS circuits that flicker together: the baked light
+## keeps each group's share of the direct light (LightBaker), so the surface
+## shader dims the room with the group's power every frame, in step with the
+## diffusers' emission. A panel switched off is remembered by the world and
+## its surroundings are baked again (WorldStreamer.relight).
 
-## No real lights by default: every panel is lit by the surface shader, so
-## nothing switches on as the player approaches. Kept for experiments.
-const POOL := 0
-## Real lights fade in between these distances: the baked field already
-## carries each panel, they only add shadows and highlights near the player.
-const FADE_NEAR := 5.0
-const FADE_FAR := 11.0
-const SELECT_RADIUS := 12.0
-const LIGHT_COLOR := Color(1.0, 0.95, 0.82)
+const GROUPS := 3
 
 var streamer: WorldStreamer
+var world: LevelWorld
 var reduced_motion := false
-var energy := 0.42
-var shadows := true
+## Current power factor of each flicker group (1 = nominal).
+var group_power := Vector3.ONE
+## Development: forces the groups' power (x < 0: off).
+var force := Vector3(-1, -1, -1)
 
-var _lights: Array[SpotLight3D] = []
-var _assigned: Array = []
 var _time := 0.0
 var _tick := -1
 var _panels: Array = []
-var _query := PhysicsRayQueryParameters3D.new()
 
 
-func _ready() -> void:
-	_query.collision_mask = 1
-	for i in POOL:
-		var light := SpotLight3D.new()
-		light.light_color = LIGHT_COLOR
-		light.spot_angle = 78.0
-		light.spot_angle_attenuation = 0.8
-		light.spot_range = 7.5
-		light.spot_attenuation = 1.6
-		light.light_energy = 0.0
-		light.light_specular = 0.25
-		light.shadow_enabled = shadows
-		light.shadow_bias = 0.1
-		light.shadow_normal_bias = 2.0
-		light.shadow_blur = 2.5
-		# The baked field already darkens behind walls; real shadows only nuance it.
-		light.shadow_opacity = 0.6
-		light.rotation = Vector3(-PI / 2, 0, 0)
-		light.visible = false
-		add_child(light)
-		_lights.append(light)
-		_assigned.append(null)
+## Flicker group of a panel: 0 for steady panels, 1..GROUPS otherwise.
+static func group_of(seed: int) -> int:
+	if seed % 9 != 0 or seed % 19 == 0:
+		return 0
+	return 1 + (seed / 9) % GROUPS
 
 
-static func power(time: float, seed: int, steady: bool) -> float:
-	# A few dead tubes: the diffuser stays dark and gives no light.
+## Nominal power of a panel (a few dead tubes give no light).
+static func nominal(seed: int) -> float:
 	if seed % 19 == 0:
 		return 0.02
-	var nominal := 0.76 + float(seed % 101) / 101.0 * 0.24
-	if steady:
-		return nominal
-	var flutter := 0.985 + 0.015 * sin(time * 2.1 + seed % 127)
-	var period := 11.0 + seed % 8
-	var phase := fmod(time + float(seed % 997) / 997.0 * period, period)
-	if seed % 9 != 0 or phase > 0.85:
-		return nominal * flutter
+	return 0.76 + float(seed % 101) / 101.0 * 0.24
+
+
+## Power factor of a flicker group at a time: mostly 1, with irregular
+## double dips (each group has its own period and phase).
+static func group_factor(time: float, group: int) -> float:
+	if group <= 0:
+		return 1.0
+	var period := 9.0 + group * 2.7
+	var phase := fmod(time + group * 3.1, period)
+	var flutter := 0.985 + 0.015 * sin(time * (2.1 + group * 0.4))
+	if phase > 0.85:
+		return flutter
 	var dip := func(a: float, b: float) -> float: return clampf(minf((phase - a) / 0.045, (b - phase) / 0.045), 0.0, 1.0)
-	return nominal * flutter * (1.0 - 0.88 * maxf(dip.call(0.08, 0.27), dip.call(0.48, 0.72)))
+	return flutter * (1.0 - 0.88 * maxf(dip.call(0.08, 0.27), dip.call(0.48, 0.72)))
+
+
+## Panel power at a time (steady: the nominal power, as baked).
+static func power(time: float, seed: int, steady: bool) -> float:
+	return nominal(seed) * (1.0 if steady else group_factor(time, group_of(seed)))
 
 
 func refresh_panels() -> void:
 	_panels = streamer.panels()
 
 
-func update(delta: float, camera: Camera3D, running: bool) -> void:
+func update(delta: float, running: bool) -> void:
 	if running:
 		_time += delta
+	var t := 0.0 if reduced_motion else _time
+	group_power = Vector3(group_factor(t, 1), group_factor(t, 2), group_factor(t, 3))
+	if force.x >= 0.0:
+		group_power = force
+	streamer.set_group_power(group_power)
 	var tick := int(_time * 30.0)
-	var eye := camera.global_position
-	if tick != _tick:
-		_tick = tick
-		# Flicker: only panels whose seed flickers ever change their emission.
-		for entry in _panels:
-			var f = entry[2]
-			if f.seed % 9 == 0 and is_instance_valid(entry[0]):
-				var p := power(_time, f.seed, reduced_motion)
-				entry[0].set_panel_power(entry[1], p)
-				streamer.set_fixture_power(f, p)
-		_select(eye)
-	for i in POOL:
-		var light := _lights[i]
-		var f = _assigned[i]
-		var target := 0.0
-		if f != null:
-			var d := Vector2(f.x - eye.x, f.z - eye.z).length()
-			target = power(_time, f.seed, reduced_motion) * energy * (1.0 - smoothstep(FADE_NEAR, FADE_FAR, d))
-		# Lights fade in and out over ~0.25 s when the selection changes.
-		var current := light.light_energy
-		if f == null or light.visible:
-			light.light_energy = move_toward(current, target, delta * energy * 4.0)
-		if f == null and light.light_energy <= 0.001:
-			light.visible = false
-
-
-func _select(eye: Vector3) -> void:
-	var space := get_world_3d().direct_space_state
-	var candidates := []
+	if tick == _tick:
+		return
+	_tick = tick
+	# Emission of the flickering diffusers, in step with their group's light.
 	for entry in _panels:
 		var f = entry[2]
-		var d := Vector2(f.x - eye.x, f.z - eye.z).length()
-		if d > SELECT_RADIUS:
-			continue
-		_query.from = eye
-		_query.to = Vector3(f.x, LevelWorld.HEIGHT - 0.3, f.z)
-		var visible := space.intersect_ray(_query).is_empty()
-		candidates.append([d + (0.0 if visible else 6.0), f])
-	candidates.sort_custom(func(a, b): return a[0] < b[0])
-	var wanted := {}
-	for i in mini(POOL, candidates.size()):
-		wanted[candidates[i][1].id] = candidates[i][1]
-	# Keep lights that remain wanted; free the others (they fade out first).
-	for i in POOL:
-		var f = _assigned[i]
-		if f != null and wanted.has(f.id):
-			wanted.erase(f.id)
-		elif f != null:
-			_assigned[i] = null
-	for f in wanted.values():
-		for i in POOL:
-			if _assigned[i] == null and _lights[i].light_energy <= 0.001:
-				_assigned[i] = f
-				_lights[i].global_position = Vector3(f.x, LevelWorld.HEIGHT - 0.02, f.z)
-				_lights[i].light_energy = 0.0
-				_lights[i].visible = true
-				break
+		var g := group_of(f.seed)
+		if g > 0 and is_instance_valid(entry[0]) and not world.panels_off.has(f.id):
+			entry[0].set_panel_power(entry[1], nominal(f.seed) * group_power[g - 1])
 
 
-func stats() -> Dictionary:
-	var lit := 0
-	for l in _lights:
-		if l.visible:
-			lit += 1
-	return {"pool": POOL, "lit": lit, "panels": _panels.size()}
+## Switches a panel off for good: dark diffuser, and its light baked away.
+func switch_off(f) -> void:
+	if world.panels_off.has(f.id):
+		return
+	world.panels_off[f.id] = true
+	for entry in _panels:
+		if entry[2] == f and is_instance_valid(entry[0]):
+			entry[0].set_panel_power(entry[1], 0.0)
+	streamer.relight(Vector2(f.x, f.z))
+
+
+## The lit panel nearest to a point, within `radius` metres, or null.
+func nearest(p: Vector3, radius := 6.0):
+	var best = null
+	var best_d := radius
+	for entry in _panels:
+		var f = entry[2]
+		var d := Vector2(f.x - p.x, f.z - p.z).length()
+		if d < best_d and not world.panels_off.has(f.id) and nominal(f.seed) > 0.1:
+			best_d = d
+			best = f
+	return best

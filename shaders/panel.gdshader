@@ -23,7 +23,7 @@ void vertex() {
 }
 
 void fragment() {
-	vec3 prism = to_linear(texture(diffuser_tex, UV * vec2(2.0, 1.0)).rgb);
+	vec3 prism = to_linear(texture(diffuser_tex, UV).rgb);
 	prism /= max(dot(to_linear(textureLod(diffuser_tex, vec2(0.5), 10.0).rgb), vec3(0.333)), 0.05);
 	// Values above 1 feed the glow pass.
 	ALBEDO = to_srgb(light_color * prism * (0.01 + power) * radiance);

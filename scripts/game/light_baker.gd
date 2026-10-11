@@ -140,10 +140,14 @@ func direct(world: LevelWorld, coord: Vector2i) -> Array:
 		for x in range(c0.x, c0.x + span):
 			for f in world.cell_fixtures(x, z):
 				fixtures.append(f)
-	var fix := Image.create(maxi(1, fixtures.size()), 1, false, Image.FORMAT_RGBAF)
+	# Row 0: x, z, radiance, height; row 1: flicker group. Panels switched off
+	# give no light.
+	var fix := Image.create(maxi(1, fixtures.size()), 2, false, Image.FORMAT_RGBAF)
 	for i in fixtures.size():
 		var f = fixtures[i]
-		fix.set_pixel(i, 0, Color(f.x - origin.x, f.z - origin.y, PanelLights.power(0.0, f.seed, true) * panel_radiance, f.y))
+		var lit := 0.0 if world.panels_off.has(f.id) else PanelLights.power(0.0, f.seed, true)
+		fix.set_pixel(i, 1, Color(PanelLights.group_of(f.seed), 0, 0, 0))
+		fix.set_pixel(i, 0, Color(f.x - origin.x, f.z - origin.y, lit * panel_radiance, f.y))
 	_direct.set_shader_parameter("fix_tex", ImageTexture.create_from_image(fix))
 	_direct.set_shader_parameter("fix_count", fixtures.size())
 	_set_spans(_direct, spans(world, coord))

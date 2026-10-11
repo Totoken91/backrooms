@@ -23,6 +23,9 @@ var ao: Image
 var direct := []
 var bounce1 := []
 var bounce := []
+## Bake again after a light change: 1 direct, then 2 first and 3 second
+## gather; the current light stays shown until each new pass is ready.
+var relight := 0
 var build_ms := 0.0
 var built := false
 var phases := {}
@@ -289,7 +292,7 @@ func _build_panels(panel_mesh: Mesh) -> void:
 	for i in fixtures.size():
 		var f = fixtures[i]
 		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(f.x, H - 0.006, f.z)))
-		mm.set_instance_custom_data(i, Color(PanelLights.power(0.0, f.seed, true), 0, 0, 0))
+		mm.set_instance_custom_data(i, Color(0.0 if _world.panels_off.has(f.id) else PanelLights.power(0.0, f.seed, true), 0, 0, 0))
 	var node := MultiMeshInstance3D.new()
 	node.name = "Panels"
 	node.multimesh = mm

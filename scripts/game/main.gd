@@ -41,8 +41,6 @@ func _ready() -> void:
 	add_child(baker)
 	streamer.baker = baker
 	# Development: isolate each lighting component (lights=0, field=0).
-	if options.get("lights") == "0":
-		lights.energy = 0.0
 	# Development: tune=param:value,... on surface materials; env.<prop>:value on
 	# the Environment (e.g. env.fog_density:0.02).
 	if options.has("tune"):
@@ -62,6 +60,9 @@ func _ready() -> void:
 	if options.get("field") == "0":
 		for m in streamer.materials.values():
 			m.set_shader_parameter("field_strength", 0.0)
+	# Development: flicker=v forces every flicker group to power v.
+	if options.has("flicker"):
+		lights.force = Vector3.ONE * float(options.flicker)
 	player.stepped.connect(ambience.step)
 	new_exploration(int(options.seed) if options.has("seed") else -1)
 	if options.has("view"):
@@ -126,6 +127,16 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 		while (streamer.pending_bakes() > 0 and waited < 4000) or waited < 90:
 			await get_tree().process_frame
 			waited += 1
+		# Development: off switches the nearest panel off, then waits for the relight.
+		if options.has("off"):
+			var lamp = lights.nearest(player.global_position - player.camera.global_transform.basis.z * 5.0, 4.0)
+			if lamp != null:
+				print("switch off ", lamp.id, " at ", Vector2(lamp.x, lamp.z), " from ", player.global_position)
+				lights.switch_off(lamp)
+				waited = 0
+				while (streamer.pending_bakes() > 0 and waited < 4000) or waited < 30:
+					await get_tree().process_frame
+					waited += 1
 		var path := folder.path_join("godot-s%d-%s%s.png" % [world.seed, n, str(options.get("tag", ""))])
 		get_viewport().get_texture().get_image().save_png(path)
 		if options.has("dump"):
@@ -182,6 +193,7 @@ func _read_options() -> Dictionary:
 func new_exploration(seed := -1) -> void:
 	var value := seed if seed >= 0 else LevelWorld.fresh_seed(world.seed if world else -1)
 	world = LevelWorld.new(value)
+	lights.world = world
 	streamer.reset(world)
 	player.place(world.spawn.position, world.spawn.yaw)
 	streamer.warm(player.global_position)
@@ -206,7 +218,7 @@ func _process(delta: float) -> void:
 	if streamer.generation != _panel_generation:
 		_panel_generation = streamer.generation
 		lights.refresh_panels()
-	lights.update(delta, player.camera, running)
+	lights.update(delta, running)
 	ambience.set_running(running)
 	# Losing the pointer lock (Esc in a browser) pauses the game.
 	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
@@ -237,6 +249,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_K:
 		if started and not paused:
 			player.toggle_skate()
+		get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_F8:
+		# Development: switch off the nearest panel (its light is baked away).
+		var f = lights.nearest(player.global_position)
+		if f != null:
+			lights.switch_off(f)
 		get_viewport().set_input_as_handled()
 	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_F7:
 		_light_view = (_light_view + 1) % LIGHT_VIEWS.size()
@@ -303,10 +321,10 @@ func _build_materials() -> void:
 	frame.albedo_color = Color(0.82, 0.8, 0.72)
 	frame.roughness = 0.5
 	frame.metallic = 0.3
-	# Diffuser (1.225 × 0.6 m) and its four frame returns, centred on the panel.
+	# Diffuser (0.6 × 0.6 m, a 2 × 2 ft troffer) and its four frame returns.
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var w := 0.6125
+	var w := 0.3
 	var d := 0.3
 	for p in [Vector3(-w, 0, -d), Vector3(w, 0, d), Vector3(w, 0, -d), Vector3(-w, 0, -d), Vector3(-w, 0, d), Vector3(w, 0, d)]:
 		st.set_normal(Vector3.DOWN)
@@ -518,7 +536,7 @@ func _update_debug() -> void:
 	var size := get_viewport().get_visible_rect().size
 	_ui.debug.text = "
 ".join([
-		"HORS PLAN · DEBUG    F3 masquer · K skate · F7 vue lumière · Échap pause",
+		"HORS PLAN · DEBUG    F3 masquer · K skate · F7 vue lumière · F8 éteindre le néon proche",
 		"FPS %d · image p50 %.1f / p95 %.1f / max %.1f ms · %dx%d" % [Engine.get_frames_per_second(), q.call(0.5), q.call(0.95), q.call(1.0), size.x, size.y],
 		"graine %d · %s · %s" % [world.seed, LevelWorld.VERSION, BUILD],
 		"position x %.2f  y %.2f  z %.2f · cellule (%d, %d) · chunk %s" % [p.x, p.y, p.z, cell.x, cell.y, WorldStreamer.chunk_of(p)],
@@ -526,6 +544,7 @@ func _update_debug() -> void:
 		"%s · %.1f m/s (%.0f km/h) · parcouru %.0f m · session %d:%02d" % [mode, player.speed, player.speed * 3.6, player.walked, int(_session) / 60, int(_session) % 60],
 		"zone %s · densité néons %.2f · néons dans la cellule %d" % [zone, world.light_density(cell.x, cell.y), world.cell_fixtures(cell.x, cell.y).size()],
 		"lumière au sol E/π %.3f (r %.3f g %.3f b %.3f) · vue %s" % [(light.r + light.g + light.b) / 3.0, light.r, light.g, light.b, LIGHT_VIEWS[_light_view][1]],
+		"clignotement groupes %.2f / %.2f / %.2f · néons éteints %d · zones à recalculer %d" % [lights.group_power.x, lights.group_power.y, lights.group_power.z, world.panels_off.size(), streamer.relighting()],
 		"chunks %d · calculs lumière en attente %d · bake %.1f ms (n° %d) · construction %.1f ms (max %.1f)" % [streamer.chunks.size(), streamer.pending_bakes(), streamer.baker.last_ms, streamer.baker.renders, streamer.last_build_ms, streamer.max_build_ms],
 		"draw calls %d · primitives %d · VRAM %s · mémoire %s" % [RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME), RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME), mb.call(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED)), mb.call(Performance.get_monitor(Performance.MEMORY_STATIC))],
 	])

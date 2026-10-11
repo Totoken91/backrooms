@@ -124,8 +124,10 @@ func _init() -> void:
 		for z in range(4):
 			for x in range(10):
 				for f in a.cell_fixtures(x, z):
-					for v in [f.x0, f.z0, f.x1, f.z1]:
-						check(absf(v / 0.625 - round(v / 0.625)) < 1e-6, "panel off the ceiling grid")
+					# Square panels centred in their 2.5 m cell (the regular grid).
+					var c := Vector2((floorf(f.x / 2.5) + 0.5) * 2.5, (floorf(f.z / 2.5) + 0.5) * 2.5)
+					check(Vector2(f.x, f.z).distance_to(c) < 1e-6, "panel off the cell grid")
+					check(absf(f.x1 - f.x0 - LevelWorld.PANEL) < 1e-6 and absf(f.z1 - f.z0 - LevelWorld.PANEL) < 1e-6, "panel not square")
 	check(mirrors.size() == 2, "both orientations occur")
 	var w := LevelWorld.new(99)
 	for seg in [[-30.3, -12.1, -14.6, -27.9], [-3.1, 2.2, 20.4, 9.9], [1.1, 1.1, 1.1, -40.0]]:

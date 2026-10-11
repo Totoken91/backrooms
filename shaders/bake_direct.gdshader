@@ -5,7 +5,8 @@ render_mode blend_disabled;
 //   tile 0: floor (up), wall h0 (+X, -X, +Z)
 //   tile 1: wall h0 (-Z), wall h1 (+X, -X, +Z)
 //   tile 2: wall h1 (-Z), wall h2 (+X, -X, +Z)
-//   tile 3: wall h2 (-Z)
+//   tile 3: wall h2 (-Z), then the share of the floor light coming from each
+//           flicker group 1..3 (a fraction, encoded like the irradiance)
 // "Wall" values are the irradiance on a vertical surface facing that axis, at
 // WALL_H0 / WALL_H1 / WALL_H2. Panels are Lambertian rectangles facing down,
 // sampled at 8 points; visibility is traced in 3D through the solid spans of
@@ -14,7 +15,7 @@ render_mode blend_disabled;
 
 #include "res://shaders/spans.gdshaderinc"
 
-uniform sampler2D fix_tex : filter_nearest, repeat_disable; // x, z, radiance, panel height
+uniform sampler2D fix_tex : filter_nearest, repeat_disable; // row 0: x, z, radiance, height; row 1: flicker group
 uniform int fix_count = 0;
 uniform float texel = 0.25;
 uniform float tiles = 3.0;
@@ -55,15 +56,17 @@ void fragment() {
 	if (occupied(p) < 0.5) {
 		float e[13];
 		for (int k = 0; k < 13; k++) e[k] = 0.0;
+		vec3 eg = vec3(0.0);
 		vec3 axes[4] = vec3[4](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 0, 1), vec3(0, 0, -1));
 		for (int i = 0; i < fix_count; i++) {
 			vec4 f = texelFetch(fix_tex, ivec2(i, 0), 0);
 			if (distance(f.xy, p) > reach || f.z <= 0.0) continue;
-			// 4 × 2 points over the 1.2 × 0.6 m diffuser, shifted per texel so the
+			int group = int(texelFetch(fix_tex, ivec2(i, 1), 0).r + 0.5);
+			// 3 × 3 points over the 0.6 m square diffuser, shifted per texel so the
 			// penumbrae through openings are smooth after the denoise pass.
-			vec2 jit = (vec2(fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453), fract(sin(dot(p, vec2(39.3468, 11.135))) * 24634.6345)) - 0.5) * vec2(0.3, 0.3);
-			for (int s = 0; s < 8; s++) {
-				vec2 q = f.xy + vec2((float(s % 4) - 1.5) * 0.3, s < 4 ? -0.15 : 0.15) + jit;
+			vec2 jit = (vec2(fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453), fract(sin(dot(p, vec2(39.3468, 11.135))) * 24634.6345)) - 0.5) * vec2(0.2, 0.2);
+			for (int s = 0; s < 9; s++) {
+				vec2 q = f.xy + vec2(float(s % 3) - 1.0, float(s / 3) - 1.0) * 0.2 + jit;
 				vec3 lp = vec3(q.x, f.w - 0.01, q.y);
 				// Visibility in 3D per receiver height (a lintel can hide a panel
 				// from the floor and not from the top of a wall): floor and h0
@@ -72,12 +75,13 @@ void fragment() {
 				float vis_mid = visible(vec3(p.x, WALL_H1, p.y), lp);
 				float vis_top = visible(vec3(p.x, WALL_H2, p.y), lp);
 				if (vis_low + vis_mid + vis_top < 0.5) continue;
-				// dA = panel area / 8; radiance f.z; E += L cos cos dA / d².
-				float w = f.z * 0.091875;
+				// dA = panel area (0.36 m²) / 9; radiance f.z; E += L cos cos dA / d².
+				float w = f.z * 0.04;
 				vec3 v = lp - vec3(p.x, 0.02, p.y);
 				float d2 = dot(v, v);
 				vec3 o = v * inversesqrt(d2);
 				e[0] += vis_low * w * o.y * o.y / d2;
+				if (group > 0) eg[group - 1] += vis_low * w * o.y * o.y / d2;
 				for (int h = 0; h < 3; h++) {
 					float vis = h == 0 ? vis_low : (h == 1 ? vis_mid : vis_top);
 					if (vis < 0.5) continue;
@@ -100,7 +104,7 @@ void fragment() {
 		if (tile < 0.5) outv = vec4(e[0], e[1], e[2], e[3]);
 		else if (tile < 1.5) outv = vec4(e[4], e[5], e[6], e[7]);
 		else if (tile < 2.5) outv = vec4(e[8], e[9], e[10], e[11]);
-		else outv = vec4(e[12], 0.0, 0.0, 0.0);
+		else outv = vec4(e[12], eg / max(e[0], 1e-4));
 		outv = sqrt(clamp(outv / e_max, 0.0, 1.0));
 	}
 	if (calibrate) outv = vec4(local / res, tile / 4.0, 1.0);

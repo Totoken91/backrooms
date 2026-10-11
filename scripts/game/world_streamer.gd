@@ -199,6 +199,8 @@ func _next_bake() -> void:
 		if not chunk.built:
 			continue
 		var stage := 0 if chunk.direct.is_empty() else (1 if chunk.bounce1.is_empty() else (2 if chunk.bounce.is_empty() else 3))
+		if stage == 3 and chunk.relight > 0:
+			stage = chunk.relight - 1
 		if stage == 3:
 			continue
 		if stage > 0 and (absi(k.x - center.x) > RADIUS or absi(k.y - center.y) > RADIUS):
@@ -209,9 +211,9 @@ func _next_bake() -> void:
 				for dx in range(-1, 2):
 					var nk: Vector2i = k + Vector2i(dx, dz)
 					var n: Chunk = chunks.get(nk)
-					if stage == 1 and (n == null or n.direct.is_empty()):
+					if stage == 1 and (n == null or n.direct.is_empty() or n.relight == 1):
 						ready = false
-					elif stage == 2 and absi(nk.x - center.x) <= RADIUS and absi(nk.y - center.y) <= RADIUS and (n == null or n.bounce1.is_empty()):
+					elif stage == 2 and absi(nk.x - center.x) <= RADIUS and absi(nk.y - center.y) <= RADIUS and (n == null or n.bounce1.is_empty() or n.relight == 1 or n.relight == 2):
 						ready = false
 		var score := Vector2(k - center).length() + stage * 1.0
 		if ready and score < best_score:
@@ -231,7 +233,10 @@ func _bake_direct(chunk: Chunk) -> void:
 	var tiles: Array = await baker.direct(world, chunk.coord)
 	if is_instance_valid(chunk):
 		chunk.direct = tiles
-		await chunk.bake_ao(AO_SLICE_MS)
+		if chunk.relight == 1:
+			chunk.relight = 2
+		if not chunk.ao:
+			await chunk.bake_ao(AO_SLICE_MS)
 		if is_instance_valid(chunk):
 			_upload(chunk, "direct")
 	_baking = false
@@ -243,8 +248,12 @@ func _bake_gather(chunk: Chunk, second: bool) -> void:
 	if is_instance_valid(chunk):
 		if second:
 			chunk.bounce = tiles
+			if chunk.relight == 3:
+				chunk.relight = 0
 		else:
 			chunk.bounce1 = tiles
+			if chunk.relight == 2:
+				chunk.relight = 3
 		_upload(chunk, "bounce" if second else "bounce1")
 	_baking = false
 
@@ -254,7 +263,7 @@ func pending_bakes() -> int:
 	for dz in range(-RADIUS, RADIUS + 1):
 		for dx in range(-RADIUS, RADIUS + 1):
 			var chunk: Chunk = chunks.get(center + Vector2i(dx, dz))
-			if chunk == null or not chunk.built or chunk.bounce.is_empty():
+			if chunk == null or not chunk.built or chunk.bounce.is_empty() or chunk.relight > 0:
 				n += 1
 	return n
 
@@ -268,9 +277,38 @@ func panels() -> Array:
 	return out
 
 
-## Flicker currently drives the panel's emission only (baked light is steady).
-func set_fixture_power(_f, _power: float) -> void:
-	pass
+## Power of the flicker groups (PanelLights), applied to the baked light.
+func set_group_power(v: Vector3) -> void:
+	for m in materials.values():
+		if m is ShaderMaterial:
+			m.set_shader_parameter("group_power", v)
+
+
+## A light changed at point p (a panel switched off): chunks it lit directly
+## (within the baker's reach) bake everything again, the chunks around only
+## their indirect light.
+func relight(p: Vector2) -> void:
+	var size := LevelWorld.CHUNK * LevelWorld.CELL
+	var around := WorldStreamer.chunk_of(Vector3(p.x, 0, p.y))
+	for k in chunks:
+		var chunk: Chunk = chunks[k]
+		if chunk.direct.is_empty():
+			continue
+		var rect := Rect2(LightBaker.chunk_origin(k), Vector2(size, size))
+		var nearest := p.clamp(rect.position, rect.end)
+		if nearest.distance_to(p) < 9.0:
+			chunk.relight = 1
+		elif absi(k.x - around.x) <= 1 and absi(k.y - around.y) <= 1 and chunk.relight == 0:
+			chunk.relight = 2
+
+
+## Chunks with a light change still being baked.
+func relighting() -> int:
+	var n := 0
+	for chunk in chunks.values():
+		if chunk.relight > 0:
+			n += 1
+	return n
 
 
 ## The ten map values (sqrt-encoded, LightBaker layout) at p, from the
