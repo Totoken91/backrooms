@@ -280,7 +280,8 @@ func check_uniform_gather() -> void:
 	if worst > 2.0 / 255.0:
 		failures += 1
 		printerr("FAIL: uniform radiance must conserve irradiance: ", worst)
-	# A quadrature normalization must not invent radiance on missed/black rays.
+	# First-gather mode must ignore the deliberately nonzero bounce maps.
+	# This also guards the zero-bounce fast path against leaking indirect light.
 	mat.set_shader_parameter("use_bounce", 0.0)
 	for frame in 2:
 		await process_frame

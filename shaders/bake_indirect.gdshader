@@ -58,6 +58,9 @@ vec4 dmap(int map, vec2 p) {
 
 // First-gather map `map` (5-7): irradiance (rgb) at p, relative to the chunk.
 vec3 bmap(int map, vec2 p) {
+	// First gather only sees direct lighting. Skip four decoded texture taps
+	// per hit instead of reading first-bounce maps and multiplying by zero.
+	if (use_bounce <= 0.0) return vec3(0.0);
 	return light_energy(map, bake_origin + p).rgb * i_max * use_bounce;
 }
 

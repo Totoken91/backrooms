@@ -1,5 +1,11 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**Dernière itération :** [essai vertical indirect et optimisation](docs/INDIRECT_HEIGHT_EXPERIMENT_2026-10-11.md).
+Trois hauteurs testées puis écartées : ratios premier rebond dim3 0,93 vers 0,89,
+dim0 0,88 vers 0,85, avec plus de mémoire. Patch conservé hors dépôt. Le jeu garde
+le layout 11 couches. Lectures inutiles supprimées dans le premier gather ;
+cinq captures dim3 identiques pixel par pixel. Aucun push.
+
 **Reprise du 11 octobre 2026 :** voir
 [le diagnostic et les corrections de lumière](docs/LIGHTING_DIAGNOSTIC_2026-10-11.md).
 La piste RGBA8 ci-dessous n'est pas la cause principale du bleu perdu : les
