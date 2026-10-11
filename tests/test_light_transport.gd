@@ -123,6 +123,68 @@ func run() -> void:
 		await RenderingServer.frame_post_draw
 	var filtered := root.get_texture().get_image()
 	check_color(filtered.get_pixel(filtered.get_width() / 2, filtered.get_height() / 2), Color(0.2 * 0.2 * 2.0 / PI, 0, 0).linear_to_srgb(), "bilinear floor light", 3.0 / 255.0)
+	await check_chunk_seams()
 	if failures == 0:
-		print("PASS: light transport — linear uniforms, dark blue, zero, greys, floor/ceiling/wall layers, bilinear floor")
+		print("PASS: light transport — linear uniforms, dark blue, zero, greys, surface layers, bilinear floor, chunk edges/corners, negative coordinates, stale slots")
 	quit(0 if failures == 0 else 1)
+
+
+func check_chunk_seams() -> void:
+	var vp := SubViewport.new()
+	vp.size = Vector2i(8, 8)
+	vp.disable_3d = true
+	vp.transparent_bg = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(vp)
+	var rect := ColorRect.new()
+	rect.size = Vector2(8, 8)
+	vp.add_child(rect)
+	var shader := Shader.new()
+	shader.code = "shader_type canvas_item; render_mode blend_disabled;\n#include \"res://shaders/gap.gdshaderinc\"\n#include \"res://shaders/light_maps.gdshaderinc\"\nuniform vec2 at; uniform bool test_ao=false; void fragment(){COLOR=test_ao?vec4(vec3(ao_map(at)),1.0):light_map(0,at);}"
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	rect.material = mat
+	var values := {Vector2i(0, 0): 0.2, Vector2i(1, 0): 0.6, Vector2i(0, 1): 0.4, Vector2i(1, 1): 0.8, Vector2i(-1, 0): 0.1}
+	var slots := PackedVector2Array()
+	slots.resize(49)
+	slots.fill(Vector2(1e6, 1e6))
+	var light: Array[Image] = []
+	var ao: Array[Image] = []
+	for slot in 49:
+		var img := Image.create(2, 2, false, Image.FORMAT_RGBA8)
+		img.fill(Color.BLACK)
+		for coord in values:
+			if WorldStreamer.slot_of(coord) == slot:
+				slots[slot] = Vector2(coord)
+				img.fill(Color(values[coord], values[coord], values[coord], 1))
+		for layer in 11:
+			light.append(img)
+		ao.append(img)
+	var maps := Texture2DArray.new()
+	maps.create_from_images(light)
+	var aos := Texture2DArray.new()
+	aos.create_from_images(ao)
+	mat.set_shader_parameter("light_maps", maps)
+	mat.set_shader_parameter("ao_maps", aos)
+	mat.set_shader_parameter("slot_chunk", slots)
+	var cases := [[Vector2(39.999, 20), 0.4], [Vector2(40.001, 20), 0.4], [Vector2(40, 40), 0.5], [Vector2(-0.001, 20), 0.15], [Vector2(0.001, 20), 0.15]]
+	for test_ao in [false, true]:
+		mat.set_shader_parameter("test_ao", test_ao)
+		for sample in cases:
+			mat.set_shader_parameter("at", sample[0])
+			for frame in 2:
+				await process_frame
+				await RenderingServer.frame_post_draw
+			var img := vp.get_texture().get_image()
+			var v: float = sample[1]
+			check_color(img.get_pixel(4, 4), Color(v, v, v), "chunk seam %s ao=%s" % [sample[0], test_ao])
+	# A missing or reused slot must clamp to the owned chunk, never read stale light.
+	for invalid in [Vector2(1e6, 1e6), Vector2(8, 0)]:
+		slots[1] = invalid
+		mat.set_shader_parameter("slot_chunk", slots)
+		mat.set_shader_parameter("at", Vector2(39.999, 20))
+		for frame in 2:
+			await process_frame
+			await RenderingServer.frame_post_draw
+		check_color(vp.get_texture().get_image().get_pixel(4, 4), Color(0.2, 0.2, 0.2), "missing/stale neighbour %s" % invalid)
+	vp.queue_free()

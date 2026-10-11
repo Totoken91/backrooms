@@ -5,6 +5,10 @@
 La piste RGBA8 ci-dessous n'est pas la cause principale du bleu perdu : les
 conversions du rendu et une passe d'ajustement neutre l'écrasaient à l'affichage.
 
+**Consolidation suivante :** [audit visuel des raccords et des arêtes](docs/VISUAL_AUDIT_2026-10-11.md).
+Filtrage entre chunks corrigé pour lumière et occlusion ; MSAA 4× activé pour
+les arêtes fines. Toujours aucun push sans accord de Kenny.
+
 Document de reprise pour Codex. État au commit qui ajoute ce fichier (branche
 `main`). Tout ce qui suit a été vérifié en local ; les chiffres viennent des
 outils de mesure décrits plus bas.

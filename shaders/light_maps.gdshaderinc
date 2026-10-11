@@ -24,11 +24,41 @@ int light_slot(vec2 xz, out vec2 uv) {
 	return slot;
 }
 
-vec4 light_map(int map, vec2 xz) {
+// A tap just outside a layer belongs to the adjacent world chunk, not the
+// clamped edge of this array layer. Check ownership before reading reused slots.
+vec4 chunk_tap(sampler2DArray maps, int stride, int map, vec2 chunk, ivec2 p, ivec2 res, int owner) {
+	vec2 delta = floor(vec2(p) / vec2(res));
+	vec2 unused_uv;
+	int neighbour = light_slot((chunk + delta + 0.5) * CHUNK_SIZE, unused_uv);
+	if (neighbour < 0) {
+		return texelFetch(maps, ivec3(clamp(p, ivec2(0), res - 1), owner * stride + map), 0);
+	}
+	ivec2 local = p - ivec2(delta) * res;
+	return texelFetch(maps, ivec3(local, neighbour * stride + map), 0);
+}
+
+vec4 chunk_sample(sampler2DArray maps, int stride, int map, vec2 xz, vec4 missing) {
 	vec2 uv;
 	int s = light_slot(xz, uv);
-	if (s < 0) return vec4(0.0);
-	return texture(light_maps, vec3(uv, float(s * MAPS + map)));
+	if (s < 0) return missing;
+	ivec2 res = textureSize(maps, 0).xy;
+	vec2 pixel = uv * vec2(res) - 0.5;
+	// Keep the ordinary single filtered lookup everywhere except the border.
+	if (all(greaterThanEqual(pixel, vec2(0.0))) && all(lessThanEqual(pixel, vec2(res - 1)))) {
+		return texture(maps, vec3(uv, float(s * stride + map)));
+	}
+	ivec2 p = ivec2(floor(pixel));
+	vec2 f = fract(pixel);
+	vec2 chunk = floor(xz / CHUNK_SIZE);
+	vec4 a = chunk_tap(maps, stride, map, chunk, p, res, s);
+	vec4 b = chunk_tap(maps, stride, map, chunk, p + ivec2(1, 0), res, s);
+	vec4 c = chunk_tap(maps, stride, map, chunk, p + ivec2(0, 1), res, s);
+	vec4 d = chunk_tap(maps, stride, map, chunk, p + ivec2(1, 1), res, s);
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+vec4 light_map(int map, vec2 xz) {
+	return chunk_sample(light_maps, MAPS, map, xz, vec4(0.0));
 }
 
 // Room space (floor, ceiling heights) of the column at xz; the default room
@@ -47,8 +77,5 @@ vec2 gap_map(vec2 xz, float default_ceiling) {
 }
 
 float ao_map(vec2 xz) {
-	vec2 uv;
-	int s = light_slot(xz, uv);
-	if (s < 0) return 1.0;
-	return texture(ao_maps, vec3(uv, float(s))).r;
+	return chunk_sample(ao_maps, 1, 0, xz, vec4(1.0)).r;
 }

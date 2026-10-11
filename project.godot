@@ -43,4 +43,5 @@ lights_and_shadows/positional_shadow/soft_shadow_filter_quality=4
 textures/default_filters/anisotropic_filtering_level=4
 limits/opengl/max_lights_per_object=8
 anti_aliasing/quality/use_debanding=true
+anti_aliasing/quality/msaa_3d=2
 environment/defaults/default_clear_color=Color(0.03, 0.028, 0.02, 1)

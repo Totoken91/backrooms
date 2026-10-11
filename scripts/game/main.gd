@@ -31,6 +31,11 @@ const LIGHT_VIEWS := [[0.0, "normale"], [8.0, "directe seule"], [9.0, "indirecte
 
 func _ready() -> void:
 	options = _read_options()
+	# Capture A/B: geometric edge coverage, without changing light intensity.
+	if options.has("msaa"):
+		var mode := [0, 2, 4, 8].find(int(options.msaa))
+		if mode >= 0:
+			get_viewport().msaa_3d = mode
 	debug = options.has("debug")
 	_build_materials()
 	_build_environment()
@@ -68,8 +73,6 @@ func _ready() -> void:
 		lights.force = Vector3.ONE * float(options.flicker)
 	player.stepped.connect(ambience.step)
 	new_exploration(int(options.seed) if options.has("seed") else -1)
-	if options.has("view"):
-		view(options.view)
 	# Development: arbitrary viewpoint, at=x,z,yaw (metres, radians).
 	if options.has("at"):
 		var a := str(options.at).split(",")
@@ -116,6 +119,11 @@ func _ready() -> void:
 			world.views["dim%d" % found] = {"position": Vector3(p.x, 0, p.y), "yaw": rng.randf() * TAU, "label": "dim"}
 			print("scout dim%d " % found, [p.x, p.y, world.views["dim%d" % found].yaw])
 			found += 1
+	if options.has("audit"):
+		_add_audit_views()
+	# Custom and audit views must exist before selecting the initial view.
+	if options.has("view"):
+		view(options.view)
 	_update_ui()
 	if options.has("export_scene"):
 		_export_scene(str(options.export_scene))
@@ -123,6 +131,27 @@ func _ready() -> void:
 		return
 	if options.has("shots"):
 		_capture(str(options.shots).split(","), str(options.get("out", "user://")))
+
+
+## Reproducible visual QA views looking across a 40 m streaming boundary.
+## Both sides must have player clearance; use a nearby corridor for each seed.
+func _add_audit_views() -> void:
+	var spawn: Vector3 = world.spawn.position
+	for axis in 2:
+		var near := spawn.z if axis == 0 else spawn.x
+		var odd := floori(near / (LevelWorld.CELL * 2.0)) * 2 + 1
+		for attempt in 64:
+			var offset := 0 if attempt == 0 else ((attempt + 1) / 2) * (-1 if attempt % 2 else 1)
+			var along := (odd + 2 * offset + 0.5) * LevelWorld.CELL
+			var a := Vector2(39.4, along) if axis == 0 else Vector2(along, 39.4)
+			var b := Vector2(40.6, along) if axis == 0 else Vector2(along, 40.6)
+			if world.circle_blocked(a.x, a.y, 0.3) or world.circle_blocked(b.x, b.y, 0.3):
+				continue
+			world.views["seam-x" if axis == 0 else "seam-z"] = {
+				"position": Vector3(a.x, 0, a.y), "yaw": PI / 2.0 if axis == 0 else PI,
+				"label": "chunk boundary", "pitch": -0.25,
+			}
+			break
 
 
 ## Development: captures QA views once lighting is baked, then quits.
@@ -137,7 +166,9 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 		player.toggle_skate()
 	for n in names:
 		if not view(n):
-			continue
+			printerr("FAIL: missing capture view: ", n)
+			get_tree().quit(1)
+			return
 		var waited := 0
 		while (streamer.pending_bakes() > 0 and waited < 4000) or waited < 90:
 			await get_tree().process_frame
@@ -152,6 +183,10 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 				while (streamer.pending_bakes() > 0 and waited < 4000) or waited < 30:
 					await get_tree().process_frame
 					waited += 1
+		if streamer.pending_bakes() > 0:
+			printerr("FAIL: unfinished light bake for capture: ", n)
+			get_tree().quit(1)
+			return
 		var path := folder.path_join("godot-s%d-%s%s.png" % [world.seed, n, str(options.get("tag", ""))])
 		get_viewport().get_texture().get_image().save_png(path)
 		if options.has("dump"):
