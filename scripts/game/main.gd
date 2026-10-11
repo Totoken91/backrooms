@@ -51,6 +51,8 @@ func _ready() -> void:
 		baker.direct_reach = clampf(float(options.direct_reach), 1.0, 9.5)
 	if options.has("wall_receiver_fraction"):
 		baker.wall_receiver_fraction = clampf(float(options.wall_receiver_fraction), 0.1, 0.9)
+	if int(options.get("light_bands", 0)) in [4, 8, 16]:
+		baker.light_bands = int(options.light_bands)
 	streamer.baker = baker
 	# Development: isolate each lighting component (lights=0, field=0).
 	# Development: tune=param:value,... on surface materials; env.<prop>:value on
@@ -177,11 +179,13 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 			get_tree().quit(1)
 			return
 		var waited := 0
+		var bake_started := Time.get_ticks_usec()
 		while (streamer.pending_bakes() > 0 and waited < 4000) or waited < 90:
 			await get_tree().process_frame
 			waited += 1
 			if options.has("profile") and waited % 120 == 0:
 				print("capture progress ", n, " frames ", waited, " pending ", streamer.pending_bakes(), " fps ", Engine.get_frames_per_second())
+		var bake_wait_ms := (Time.get_ticks_usec() - bake_started) / 1000.0
 		# Development: off switches the nearest panel off, then waits for the relight.
 		if options.has("off"):
 			var lamp = lights.nearest(player.global_position - player.camera.global_transform.basis.z * 5.0, 4.0)
@@ -189,9 +193,11 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 				print("switch off ", lamp.id, " at ", Vector2(lamp.x, lamp.z), " from ", player.global_position)
 				lights.switch_off(lamp)
 				waited = 0
+				bake_started = Time.get_ticks_usec()
 				while (streamer.pending_bakes() > 0 and waited < 4000) or waited < 30:
 					await get_tree().process_frame
 					waited += 1
+				bake_wait_ms += (Time.get_ticks_usec() - bake_started) / 1000.0
 		if streamer.pending_bakes() > 0:
 			printerr("FAIL: unfinished light bake for capture: ", n)
 			get_tree().quit(1)
@@ -218,9 +224,14 @@ func _capture(names: PackedStringArray, folder: String) -> void:
 		if options.has("profile"):
 			var frames := _bake_frame_times.duplicate()
 			frames.sort()
-			var data := {"baker": streamer.baker.timings, "bake_frames": frames.size(), "build_slice_cpu_max_ms": streamer.max_build_slice_ms}
+			var data := {"baker": streamer.baker.timings, "bake_frames": frames.size(), "bake_wait_ms": bake_wait_ms, "light_bands": streamer.baker.light_bands, "build_slice_cpu_max_ms": streamer.max_build_slice_ms}
 			if not frames.is_empty():
-				data["frame_ms"] = {"p50": frames[frames.size() / 2], "p95": frames[int(frames.size() * 0.95)], "max": frames[-1]}
+				data["frame_ms"] = {"p50": frames[frames.size() / 2], "p95": frames[int(frames.size() * 0.95)], "max": frames[-1], "p99": frames[int(frames.size() * 0.99)]}
+				for threshold in [16.7, 33.3, 50.0]:
+					var count := 0
+					for ms in frames:
+						if ms > threshold: count += 1
+					data.frame_ms["over_%.1f_pct" % threshold] = 100.0 * count / frames.size()
 			var f := FileAccess.open(path.get_basename() + "-profile.json", FileAccess.WRITE)
 			f.store_string(JSON.stringify(data, "\t"))
 	if options.has("hold"):

@@ -393,6 +393,7 @@ func check_receiver_shadows() -> void:
 	for frame in 2:
 		await process_frame
 		await RenderingServer.frame_post_draw
+	await check_direct_pruning(mat, vp)
 	var shadowed := vp.get_texture().get_image().get_pixel(0, 0)
 	print("probe slab floor / low wall encoded ", shadowed.r, " / ", shadowed.g)
 	if shadowed.r > 0.01 or shadowed.g < 0.05:
@@ -403,6 +404,7 @@ func check_receiver_shadows() -> void:
 	for frame in 2:
 		await process_frame
 		await RenderingServer.frame_post_draw
+	await check_direct_pruning(mat, vp)
 	var clear := vp.get_texture().get_image().get_pixel(0, 0)
 	if clear.r < 0.05 or clear.g < 0.05:
 		failures += 1
@@ -419,3 +421,18 @@ func check_receiver_shadows() -> void:
 	var right := symmetric.get_pixel(7, 0)
 	check_color(Color(left.r, left.g, 0), Color(right.r, right.b, 0), "symmetric panel integration", 1.0 / 255.0)
 	vp.queue_free()
+
+
+func check_direct_pruning(mat: ShaderMaterial, vp: SubViewport) -> void:
+	mat.set_shader_parameter("prune_receivers", false)
+	for frame in 2:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var expected := vp.get_texture().get_image().get_data()
+	mat.set_shader_parameter("prune_receivers", true)
+	for frame in 2:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	if vp.get_texture().get_image().get_data() != expected:
+		failures += 1
+		printerr("FAIL: receiver pruning must preserve every packed direct channel")

@@ -37,6 +37,7 @@ func run() -> void:
 					expected = baker._filter_viewport.get_texture().get_image()
 					expected.convert(Image.FORMAT_RGBA8)
 				var count: int = baker.timings.get("readback_cpu", {}).get("count", 0)
+				baker.light_bands = 16
 				var actual: Array = await baker._render(source, radius)
 				if baker.timings.readback_cpu.count != count + 1:
 					failures += 1
@@ -49,5 +50,5 @@ func run() -> void:
 	baker.queue_free()
 	await process_frame
 	if failures == 0:
-		print("PASS: GPU bake pipeline — byte-identical CPU oracle, direct/gather, 2 patterns, 3 radii, 5 tiles, band/target reuse, one readback")
+		print("PASS: GPU bake pipeline — byte-identical CPU oracle, direct/gather, 2 patterns, 3 radii, 5 tiles, 8/16-band equivalence, target reuse, one readback")
 	quit(1 if failures else 0)

@@ -44,6 +44,9 @@ vec2 free_point(vec2 p) {
 }
 
 
+// GPU regression oracle: false reproduces all four visibility queries per tile.
+uniform bool prune_receivers = true;
+
 void fragment() {
 	vec2 cell = bake_cell(UV, res, tiles);
 	float tile = floor(cell.x / res);
@@ -54,6 +57,14 @@ void fragment() {
 	// it: it rises from the floor, peaks and falls under the ceiling.
 	vec2 gap = column_gap(p);
 	vec3 hs = wall_heights(gap);
+	// Packed tiles need only a subset of the receiver heights. Keep lower
+	// heights required by the solid-height fallback, even in the high tile.
+	bool solid_mid = blocked(p, hs.y - 0.01, hs.y + 0.01);
+	bool solid_top = blocked(p, hs.z - 0.01, hs.z + 0.01);
+	bool need_floor = !prune_receivers || tile < 0.5 || tile > 2.5;
+	bool need_top = !prune_receivers || tile > 1.5;
+	bool need_mid = !prune_receivers || (tile > 0.5 && tile < 2.5) || (need_top && solid_top);
+	bool need_low = !prune_receivers || tile < 1.5 || (need_mid && solid_mid);
 	if (tile < 3.5 && occupied(p) < 0.5) {
 		float e[13];
 		for (int k = 0; k < 13; k++) e[k] = 0.0;
@@ -74,10 +85,10 @@ void fragment() {
 				vec3 lp = vec3(q.x, f.w - 0.01, q.y);
 				// Each receiver has its own visibility. A low wall can see over
 				// a slab that hides the same panel from the floor below it.
-				float vis_floor = visible(vec3(p.x, gap.x + 0.02, p.y), lp);
-				float vis_low = visible(vec3(p.x, hs.x, p.y), lp);
-				float vis_mid = visible(vec3(p.x, hs.y, p.y), lp);
-				float vis_top = visible(vec3(p.x, hs.z, p.y), lp);
+				float vis_floor = need_floor ? visible(vec3(p.x, gap.x + 0.02, p.y), lp) : 0.0;
+				float vis_low = need_low ? visible(vec3(p.x, hs.x, p.y), lp) : 0.0;
+				float vis_mid = need_mid ? visible(vec3(p.x, hs.y, p.y), lp) : 0.0;
+				float vis_top = need_top ? visible(vec3(p.x, hs.z, p.y), lp) : 0.0;
 				if (vis_floor + vis_low + vis_mid + vis_top < 0.5) continue;
 				// dA = panel area × product quadrature weight; sum(dA) = 0.694 m².
 				float w = f.z * 0.6944444444 * weights[s % 3] * weights[s / 3];

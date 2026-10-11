@@ -1,5 +1,14 @@
 # Passation — Hors Plan (Backrooms Level 0), Godot 4.6 web
 
+**Calcul direct allégé :** [récepteurs utiles et mesures répétées](docs/DIRECT_RECEIVER_COST_2026-10-11.md).
+Visibilités calculées seulement pour les hauteurs stockées dans chaque tuile,
+avec conservation des fallbacks. Seed99 p95 natif ~28 vers ~19 ms sur deux
+exécutions ; pics isolés encore présents. Seize bandes testées et écartées
+par défaut (bake plus long). Diagnostics `light_bands=4|8|16` et profils enrichis.
+Quinze captures identiques ; suites GPU passées ; Web local 99 passes, zéro
+attente, console propre.
+Aucun push ni déploiement.
+
 **Débruitage sur GPU :** [pipeline et mesures](docs/GPU_DENOISE_PIPELINE_2026-10-11.md).
 Deux viewports réutilisés ; une seule relecture finale par passe. Seed99 : 198
 vers 99 relectures, coût CPU cumulé observé 236 vers 52 ms. Quinze captures

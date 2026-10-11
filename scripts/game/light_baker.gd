@@ -13,6 +13,8 @@ const OCC_TEXEL := 0.125
 const MARGIN := 10.0
 ## Heavy passes render in this many bands (one per frame).
 const BANDS := 8
+## Diagnostic scheduling knob: divisors of RES keep every row covered exactly.
+var light_bands := 8
 const E_MAX := 6.0
 const I_MAX := 2.0
 
@@ -159,7 +161,7 @@ func _render(m: ShaderMaterial, denoise := 0) -> Array:
 		await get_tree().process_frame
 	busy = true
 	var started := Time.get_ticks_usec()
-	await _draw(m, BANDS)
+	await _draw(m, light_bands)
 	var result := _viewport
 	if denoise > 0:
 		for key in ["span_a", "span_b", "occ_origin", "occ_size"]:
